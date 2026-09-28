@@ -1,0 +1,64 @@
+name: sigo
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: sigo-backend:latest
+    # Nome fixo porque é por ele que o Caddy alcança o serviço na rede `web`.
+    container_name: sigo-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3340"
+    networks:
+      - web
+    healthcheck:
+      # /health faz um `select 1`, então cobre API e banco de uma vez.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3340/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # A primeira subida ainda cria banco e aplica migrations.
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      # A raiz, e não ./frontend: o front importa os contratos de backend/src/contracts.
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Embutido no bundle durante a build: trocar exige rebuild da imagem.
+        NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-/api}
+    image: sigo-frontend:latest
+    container_name: sigo-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - web
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  # Criada pelo compose do Caddy/Postgres (SmartInfra) que já roda na VPS.
+  # Nenhuma porta é publicada no host: o acesso externo passa sempre pelo Caddy.
+  web:
+    external: true

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sigo-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 3040
+    },
+    {
+      "name": "sigo-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "dev"],
+      "port": 3340
+    }
+  ]
+}

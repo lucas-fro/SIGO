@@ -1,0 +1,14 @@
+# Contexto do build do frontend (a raiz do repositório). Só entram frontend/ e
+# backend/src/contracts; o resto fica de fora para o contexto não pesar.
+**/node_modules
+**/dist
+**/.nuxt
+**/.output
+**/coverage
+**/*.log
+.git
+.claude
+
+# Crítico: o Nuxt lê o .env durante a build. Se ele entrar no contexto, o
+# endereço de desenvolvimento (localhost) sobrescreve o ARG da imagem.
+**/.env

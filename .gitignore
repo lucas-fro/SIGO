@@ -1,0 +1,11 @@
+node_modules
+dist
+.output
+.nuxt
+.data
+coverage
+*.log
+*.tsbuildinfo
+
+# Segredos: senha do banco, do administrador e a chave da sessão.
+.env

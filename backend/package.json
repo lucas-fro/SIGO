@@ -1,0 +1,53 @@
+{
+  "name": "sigo-backend",
+  "version": "0.1.0",
+  "description": "SIGO — API (NestJS + Drizzle)",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "oxlint --type-aware src/ test/",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:create": "tsx src/db/create-database.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:exemplo": "tsx src/db/exemplo.ts",
+    "db:studio": "drizzle-kit studio",
+    "usuarios": "tsx src/auth/cli.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.1.1",
+    "@nestjs/core": "^12.1.1",
+    "@nestjs/platform-express": "^12.1.1",
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^12.0.8",
+    "@nestjs/schematics": "^12.0.6",
+    "@nestjs/testing": "^12.1.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.0.0",
+    "drizzle-kit": "^0.31.11",
+    "oxlint": "^1.58.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "prettier": "^3.9.9",
+    "supertest": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

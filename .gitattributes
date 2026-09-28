@@ -1,0 +1,15 @@
+# O projeto é editado no Windows mas roda em container Linux. Guardar e entregar
+# tudo em LF evita o caso clássico: shell script com CRLF que o container recusa
+# porque o shebang vira "/bin/sh\r".
+* text=auto eol=lf
+
+# Binários: sem conversão de fim de linha e sem diff textual.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.xlsx binary
+*.woff binary
+*.woff2 binary

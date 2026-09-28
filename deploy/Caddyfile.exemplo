@@ -1,0 +1,18 @@
+# Bloco para o Caddyfile da VPS (SmartInfra). Mesmo padrão dos outros serviços:
+# /api vai para o backend, o resto para o Nginx do front.
+#
+# O Caddy alcança os containers pelo nome porque todos estão na rede `web`.
+
+sigo.smartinterno.com {
+	encode zstd gzip
+
+	handle /api/* {
+		# Sem strip de caminho: o Nest registra as rotas sob o prefixo /api.
+		# Por isso `handle`, e nunca `handle_path`, que removeria o /api.
+		reverse_proxy sigo-backend:3340
+	}
+
+	handle {
+		reverse_proxy sigo-frontend:80
+	}
+}

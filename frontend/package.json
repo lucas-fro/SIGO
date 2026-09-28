@@ -1,0 +1,32 @@
+{
+  "name": "sigo-frontend",
+  "version": "0.1.0",
+  "description": "SIGO — painel (Nuxt SPA)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt generate",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "format": "prettier --write \"app/**/*.{ts,vue,css}\"",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@tanstack/vue-query": "^5.104.0",
+    "lucide-vue-next": "^1.0.0",
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "prettier": "^3.9.9",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.11"
+  }
+}
