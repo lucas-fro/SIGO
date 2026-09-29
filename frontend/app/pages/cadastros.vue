@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { Check, Loader2, Pencil, Plus, Power, PowerOff, X } from 'lucide-vue-next'
+import { Check, Loader2, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-vue-next'
 import {
   editarFornecedorSchema,
   editarItemSchema,
@@ -38,10 +38,12 @@ const lista = computed<Lista>(
   () => LISTAS.find((l) => l.valor === route.query.lista)?.valor ?? 'categorias',
 )
 const info = computed(() => LISTAS.find((l) => l.valor === lista.value)!)
+const mostrarExcluidos = ref(false)
 
 function trocarLista(valor: Lista) {
   cancelarEdicao()
   erroNovo.value = null
+  mostrarExcluidos.value = false
   void router.replace({ query: valor === 'categorias' ? {} : { lista: valor } })
 }
 
@@ -60,7 +62,7 @@ interface Linha {
   cartao?: boolean
 }
 
-const linhas = computed<Linha[]>(() => {
+const linhasTodas = computed<Linha[]>(() => {
   const c = cadastros.value
   switch (lista.value) {
     case 'categorias':
@@ -77,6 +79,16 @@ const linhas = computed<Linha[]>(() => {
       return []
   }
 })
+const linhas = computed(() =>
+  linhasTodas.value.filter((linha) => linha.ativo !== mostrarExcluidos.value),
+)
+const quantidadeExcluidos = computed(() => linhasTodas.value.filter((linha) => !linha.ativo).length)
+const numeroColunas = computed(
+  () =>
+    2 +
+    (lista.value === 'categorias' || lista.value === 'fornecedores' ? 1 : 0) +
+    (porSetor.value && setores.value.length > 1 ? 1 : 0),
+)
 
 const carregando = computed(() =>
   lista.value === 'fornecedores' ? carregandoFornecedores.value : isPending.value,
@@ -86,7 +98,7 @@ const carregando = computed(() =>
   Quem pode o quê (a API confere de novo): categorias, formas de pagamento e
   empreendimentos valem para todos e só o admin altera; campanha nasce no dia
   a dia do setor; fornecedor novo qualquer pessoa que lança pode cadastrar,
-  mas corrigir ou desativar é do admin.
+  mas corrigir ou excluir é do admin.
 */
 const podeCriar = computed(() =>
   lista.value === 'campanhas' || lista.value === 'fornecedores' ? canEdit.value : isAdmin.value,
@@ -210,7 +222,7 @@ async function salvarEdicao() {
   }
 }
 
-async function alternarAtivo(linha: Linha) {
+async function alternarExclusao(linha: Linha) {
   try {
     await api.patch(
       lista.value === 'fornecedores'
@@ -219,7 +231,7 @@ async function alternarAtivo(linha: Linha) {
       { ativo: !linha.ativo },
     )
     await invalidar()
-    toast.sucesso(`“${linha.nome}” ${linha.ativo ? 'desativado(a)' : 'reativado(a)'}`)
+    toast.sucesso(`“${linha.nome}” ${linha.ativo ? 'excluído(a)' : 'restaurado(a)'}`)
   } catch (e) {
     if (!(e instanceof ApiError)) throw e
     toast.erro(e.message)
@@ -231,7 +243,7 @@ async function alternarAtivo(linha: Linha) {
   <div>
     <PageHeader
       titulo="Cadastros"
-      subtitulo="As listas do formulário de lançamento. Nada é apagado: o que for desativado some das opções, mas continua nos lançamentos antigos."
+      subtitulo="As listas do formulário de lançamento. Excluir remove a opção dos novos lançamentos e preserva os antigos."
     />
 
     <div class="px-5 sm:px-6">
@@ -311,6 +323,18 @@ async function alternarAtivo(linha: Linha) {
       </p>
 
       <!-- lista -->
+      <div
+        v-if="quantidadeExcluidos || mostrarExcluidos"
+        class="flex justify-end px-5 pb-3 sm:px-6"
+      >
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost"
+          @click="mostrarExcluidos = !mostrarExcluidos"
+        >
+          {{ mostrarExcluidos ? 'Voltar aos cadastros' : `Ver excluídos (${quantidadeExcluidos})` }}
+        </button>
+      </div>
       <div class="overflow-x-auto border-t border-line">
         <table class="table stack-table">
           <thead>
@@ -319,14 +343,13 @@ async function alternarAtivo(linha: Linha) {
               <th v-if="lista === 'categorias'">Descrição</th>
               <th v-if="lista === 'fornecedores'">CPF / CNPJ</th>
               <th v-if="porSetor && setores.length > 1">Setor</th>
-              <th class="w-[120px]">Situação</th>
               <th class="w-[210px] text-right"><span class="sr-only">Ações</span></th>
             </tr>
           </thead>
           <tbody>
             <template v-if="carregando">
               <tr v-for="n in 5" :key="n">
-                <td colspan="5"><div class="skeleton h-3.5 w-48" /></td>
+                <td :colspan="numeroColunas"><div class="skeleton h-3.5 w-48" /></td>
               </tr>
             </template>
 
@@ -343,6 +366,13 @@ async function alternarAtivo(linha: Linha) {
                       @keydown.enter.prevent="salvarEdicao"
                       @keydown.esc="cancelarEdicao"
                     />
+                    <label
+                      v-if="lista === 'formas-pagamento'"
+                      class="mt-2 flex items-center gap-2 text-[13px] text-ink"
+                    >
+                      <input v-model="edicao.cartao" type="checkbox" class="size-4" />
+                      É cartão
+                    </label>
                   </td>
                   <td v-if="lista === 'categorias'" data-label="Descrição">
                     <input
@@ -362,15 +392,6 @@ async function alternarAtivo(linha: Linha) {
                   </td>
                   <td v-if="porSetor && setores.length > 1" data-label="Setor" class="text-muted">
                     {{ linha.setor }}
-                  </td>
-                  <td>
-                    <label
-                      v-if="lista === 'formas-pagamento'"
-                      class="flex items-center gap-2 text-[13px] text-ink"
-                    >
-                      <input v-model="edicao.cartao" type="checkbox" class="size-4" />
-                      É cartão
-                    </label>
                   </td>
                   <td class="text-right">
                     <div class="flex justify-end gap-1.5">
@@ -411,15 +432,6 @@ async function alternarAtivo(linha: Linha) {
                   <td v-if="porSetor && setores.length > 1" data-label="Setor" class="text-muted">
                     {{ linha.setor }}
                   </td>
-                  <td data-label="Situação">
-                    <span class="badge">
-                      <span
-                        class="size-1.5 rounded-full"
-                        :class="linha.ativo ? 'bg-pos' : 'bg-ghost'"
-                      />
-                      {{ linha.ativo ? 'Ativo' : 'Inativo' }}
-                    </span>
-                  </td>
                   <td class="text-right">
                     <div v-if="podeAlterar" class="flex justify-end gap-1.5">
                       <button type="button" class="btn btn-sm btn-ghost" @click="editar(linha)">
@@ -428,11 +440,11 @@ async function alternarAtivo(linha: Linha) {
                       <button
                         type="button"
                         class="btn btn-sm btn-ghost"
-                        @click="alternarAtivo(linha)"
+                        @click="alternarExclusao(linha)"
                       >
-                        <PowerOff v-if="linha.ativo" :size="13" />
-                        <Power v-else :size="13" />
-                        {{ linha.ativo ? 'Desativar' : 'Reativar' }}
+                        <Trash2 v-if="linha.ativo" :size="13" />
+                        <RotateCcw v-else :size="13" />
+                        {{ linha.ativo ? 'Excluir' : 'Restaurar' }}
                       </button>
                     </div>
                   </td>
@@ -440,8 +452,8 @@ async function alternarAtivo(linha: Linha) {
               </tr>
 
               <tr v-if="!linhas.length">
-                <td colspan="5" class="py-10 text-center text-[13px] text-faint">
-                  Nenhum item cadastrado ainda.
+                <td :colspan="numeroColunas" class="py-10 text-center text-[13px] text-faint">
+                  {{ mostrarExcluidos ? 'Nenhum item excluído.' : 'Nenhum item cadastrado ainda.' }}
                 </td>
               </tr>
             </template>

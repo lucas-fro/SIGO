@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { CalendarPlus, CreditCard, Pencil, Plus, Power, PowerOff } from 'lucide-vue-next'
+import { CalendarPlus, CreditCard, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
 import type { Cartao, GastoFixo } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 import { useCadastros } from '~/composables/useCadastros'
@@ -20,10 +20,19 @@ const api = useApi()
 const qc = useQueryClient()
 const toast = useToast()
 
-const cartoes = computed(() => cadastros.value?.cartoes ?? [])
+const mostrarCartoesExcluidos = ref(false)
+const mostrarFixosExcluidos = reactive<Record<number, boolean>>({})
+const cartoesTodos = computed(() => cadastros.value?.cartoes ?? [])
+const cartoes = computed(() =>
+  cartoesTodos.value.filter((c) => c.ativo !== mostrarCartoesExcluidos.value),
+)
+const quantidadeCartoesExcluidos = computed(() => cartoesTodos.value.filter((c) => !c.ativo).length)
 const nomeForma = (id: number) =>
   cadastros.value?.formasPagamento.find((f) => f.id === id)?.nome ?? ''
 const fixosAtivos = (c: Cartao) => c.gastosFixos.filter((f) => f.ativo)
+const fixosVisiveis = (c: Cartao) =>
+  c.gastosFixos.filter((f) => f.ativo !== !!mostrarFixosExcluidos[c.id])
+const quantidadeFixosExcluidos = (c: Cartao) => c.gastosFixos.filter((f) => !f.ativo).length
 const totalFixos = (c: Cartao) => fixosAtivos(c).reduce((t, f) => t + f.valorCentavos, 0)
 const situacaoDoMes = (c: Cartao) => painel.value?.cartoes.find((x) => x.id === c.id)
 
@@ -66,12 +75,12 @@ function lancarFixos(c: Cartao) {
   modalLancar.value = true
 }
 
-async function alternar(caminho: string, ativo: boolean, nome: string) {
+async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
   try {
     await api.patch(caminho, { ativo: !ativo })
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
     void qc.invalidateQueries({ queryKey: ['painel'] })
-    toast.sucesso(`“${nome}” ${ativo ? 'desativado' : 'reativado'}`)
+    toast.sucesso(`“${nome}” ${ativo ? 'excluído' : 'restaurado'}`)
   } catch (e) {
     if (!(e instanceof ApiError)) throw e
     toast.erro(e.message)
@@ -87,9 +96,23 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
         como comprometidos desde o início do mês e viram lançamento pelo botão
         <span class="font-medium text-ink">Lançar gastos fixos</span>.
       </p>
-      <button v-if="isAdmin" type="button" class="btn btn-primary btn-sm" @click="novoCartao">
-        <Plus :size="15" /> Novo cartão
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="quantidadeCartoesExcluidos || mostrarCartoesExcluidos"
+          type="button"
+          class="btn btn-sm btn-ghost"
+          @click="mostrarCartoesExcluidos = !mostrarCartoesExcluidos"
+        >
+          {{
+            mostrarCartoesExcluidos
+              ? 'Voltar aos cartões'
+              : `Ver excluídos (${quantidadeCartoesExcluidos})`
+          }}
+        </button>
+        <button v-if="isAdmin" type="button" class="btn btn-primary btn-sm" @click="novoCartao">
+          <Plus :size="15" /> Novo cartão
+        </button>
+      </div>
     </div>
 
     <div v-if="isPending" class="flex flex-col gap-4">
@@ -99,10 +122,19 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
     <div v-else-if="!cartoes.length" class="card">
       <EmptyState
         :icone="CreditCard"
-        titulo="Nenhum cartão cadastrado"
-        texto="Cadastre o cartão do setor com o orçamento do mês e, se tiver, o fechamento e o vencimento da fatura."
+        :titulo="mostrarCartoesExcluidos ? 'Nenhum cartão excluído' : 'Nenhum cartão cadastrado'"
+        :texto="
+          mostrarCartoesExcluidos
+            ? 'Os cartões excluídos aparecerão aqui para restauração.'
+            : 'Cadastre o cartão do setor com o orçamento do mês e, se tiver, o fechamento e o vencimento da fatura.'
+        "
       >
-        <button v-if="isAdmin" type="button" class="btn btn-primary" @click="novoCartao">
+        <button
+          v-if="isAdmin && !mostrarCartoesExcluidos"
+          type="button"
+          class="btn btn-primary"
+          @click="novoCartao"
+        >
           <Plus :size="16" /> Cadastrar cartão
         </button>
       </EmptyState>
@@ -128,10 +160,6 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
               <div class="flex flex-wrap items-center gap-2">
                 <h3 class="text-[14.5px] font-semibold text-ink">{{ c.nome }}</h3>
                 <span v-if="c.final" class="tnum text-[12.5px] text-faint">•••• {{ c.final }}</span>
-                <span class="badge">
-                  <span class="size-1.5 rounded-full" :class="c.ativo ? 'bg-pos' : 'bg-ghost'" />
-                  {{ c.ativo ? 'Ativo' : 'Inativo' }}
-                </span>
               </div>
               <p class="mt-0.5 text-[12.5px] text-muted">
                 {{ nomeForma(c.formaPagamentoId) }} · {{ descricaoFatura(c) }}
@@ -155,11 +183,11 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
               <button
                 type="button"
                 class="btn btn-sm btn-ghost"
-                @click="alternar(`/cartoes/${c.id}`, c.ativo, c.nome)"
+                @click="alternarExclusao(`/cartoes/${c.id}`, c.ativo, c.nome)"
               >
-                <PowerOff v-if="c.ativo" :size="13" />
-                <Power v-else :size="13" />
-                {{ c.ativo ? 'Desativar' : 'Reativar' }}
+                <Trash2 v-if="c.ativo" :size="13" />
+                <RotateCcw v-else :size="13" />
+                {{ c.ativo ? 'Excluir' : 'Restaurar' }}
               </button>
             </template>
           </div>
@@ -189,21 +217,39 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
           <div>
             <div class="flex items-center justify-between gap-2">
               <div class="eyebrow">Gastos fixos</div>
-              <button
-                v-if="canEdit && c.ativo"
-                type="button"
-                class="btn btn-sm btn-ghost"
-                @click="novoFixo(c)"
-              >
-                <Plus :size="14" /> Adicionar
-              </button>
+              <div class="flex items-center gap-1.5">
+                <button
+                  v-if="quantidadeFixosExcluidos(c) || mostrarFixosExcluidos[c.id]"
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  @click="mostrarFixosExcluidos[c.id] = !mostrarFixosExcluidos[c.id]"
+                >
+                  {{
+                    mostrarFixosExcluidos[c.id]
+                      ? 'Voltar aos gastos fixos'
+                      : `Excluídos (${quantidadeFixosExcluidos(c)})`
+                  }}
+                </button>
+                <button
+                  v-if="canEdit && c.ativo"
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  @click="novoFixo(c)"
+                >
+                  <Plus :size="14" /> Adicionar
+                </button>
+              </div>
             </div>
-            <p v-if="!c.gastosFixos.length" class="mt-3 text-[13px] text-faint">
-              Nenhum gasto fixo neste cartão.
+            <p v-if="!fixosVisiveis(c).length" class="mt-3 text-[13px] text-faint">
+              {{
+                mostrarFixosExcluidos[c.id]
+                  ? 'Nenhum gasto fixo excluído.'
+                  : 'Nenhum gasto fixo neste cartão.'
+              }}
             </p>
             <ul v-else class="mt-1 divide-y divide-line-soft">
               <li
-                v-for="f in c.gastosFixos"
+                v-for="f in fixosVisiveis(c)"
                 :key="f.id"
                 class="flex items-center gap-3 py-2.5"
                 :class="!f.ativo && 'opacity-60'"
@@ -242,12 +288,12 @@ async function alternar(caminho: string, ativo: boolean, nome: string) {
                   <button
                     type="button"
                     class="btn-icon"
-                    :title="f.ativo ? 'Desativar' : 'Reativar'"
-                    :aria-label="`${f.ativo ? 'Desativar' : 'Reativar'} ${f.descricao}`"
-                    @click="alternar(`/gastos-fixos/${f.id}`, f.ativo, f.descricao)"
+                    :title="f.ativo ? 'Excluir' : 'Restaurar'"
+                    :aria-label="`${f.ativo ? 'Excluir' : 'Restaurar'} ${f.descricao}`"
+                    @click="alternarExclusao(`/gastos-fixos/${f.id}`, f.ativo, f.descricao)"
                   >
-                    <PowerOff v-if="f.ativo" :size="14" />
-                    <Power v-else :size="14" />
+                    <Trash2 v-if="f.ativo" :size="14" />
+                    <RotateCcw v-else :size="14" />
                   </button>
                 </div>
               </li>
