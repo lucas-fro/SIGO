@@ -15,7 +15,7 @@ let focoAnterior: HTMLElement | null = null
 function tecla(evento: KeyboardEvent) {
   if (evento.key !== 'Escape' || evento.defaultPrevented) return
   // Modal ou lista aberta por cima trata o próprio Esc.
-  if (document.querySelector('[data-modal-aberto]')) return
+  if (document.querySelector('[data-modal-aberto], [data-lista-aberta]')) return
   emit('fechar')
 }
 

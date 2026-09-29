@@ -4,8 +4,8 @@ import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-vue-next'
 
 /*
   Indicador: rótulo, valor e, quando existir, a variação contra um período
-  nomeado e o minigráfico (no slot). O valor usa algarismos proporcionais —
-  `tabular-nums` deixa número grande com cara de espaçado.
+  nomeado. O valor usa algarismos proporcionais — `tabular-nums` deixa número
+  grande com cara de espaçado.
 */
 defineProps<{
   rotulo: string
@@ -17,6 +17,8 @@ defineProps<{
   icone?: Component
   /** Cor do ícone: a situação fica no ícone, o número continua na cor do texto. */
   tom?: 'neg' | 'warn' | 'pos' | 'neutro'
+  /** Etiqueta curta ao lado do rótulo, ex.: "hoje" quando a faixa mostra outro mês. */
+  marca?: string
   carregando?: boolean
 }>()
 
@@ -29,6 +31,7 @@ const CORES = { neg: 'text-neg', warn: 'text-warn', pos: 'text-pos', neutro: 'te
       <div class="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
         <component :is="icone" v-if="icone" :size="14" :class="CORES[tom ?? 'neutro']" />
         <span class="truncate">{{ rotulo }}</span>
+        <span v-if="marca" class="badge h-[18px] shrink-0 px-1.5">{{ marca }}</span>
       </div>
 
       <div v-if="carregando" class="skeleton mt-2.5 h-7 w-28" />
@@ -52,10 +55,6 @@ const CORES = { neg: 'text-neg', warn: 'text-warn', pos: 'text-pos', neutro: 'te
       <div v-if="legenda && !carregando" class="mt-auto pt-2 text-[12px] text-faint">
         {{ legenda }}
       </div>
-    </div>
-
-    <div v-if="$slots.default && !carregando" class="flex shrink-0 items-center">
-      <slot />
     </div>
   </div>
 </template>

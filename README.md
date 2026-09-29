@@ -2,7 +2,16 @@
 
 Registro e acompanhamento de gastos por setor da Smart. O Marketing é o primeiro
 setor: cartão, boleto, Pix e reembolso entram pelo mesmo formulário, com
-parcelas, pagamento e histórico, e a lista mostra os indicadores do mês.
+parcelas, pagamento e histórico.
+
+- **Dashboard** (`/`): gasto do mês e do ano, em aberto, gasto por mês, por categoria e por
+  empreendimento, orçamento de cada cartão e o que vence nos próximos 30 dias.
+  O seletor no topo (ou um clique no gráfico) troca o mês, que fica na URL
+  (`/?mes=AAAA-MM`); em aberto, "vence em 7 dias" e "a pagar" são sempre de hoje.
+- **Histórico** (`/historico`): todos os lançamentos, com filtros, busca,
+  exportação CSV e o detalhe num painel lateral.
+- **Cadastros**: listas do formulário e **cartões** (orçamento do mês, fatura e
+  gastos fixos, com o botão que lança os fixos do mês).
 
 | Camada | Tecnologia |
 | --- | --- |
@@ -17,11 +26,12 @@ backend/
   src/contracts/     esquemas zod e tipos da API — compartilhados com o frontend
   src/db/            schema Drizzle, migrations, seed e dados de exemplo
   src/auth/          login por cookie assinado, papéis, CLI de usuários
-  src/cadastros/     listas: categorias, formas de pagamento, empreendimentos, campanhas, fornecedores
-  src/lancamentos/   lançamentos, parcelas, histórico, indicadores
+  src/cadastros/     listas (categorias, formas, empreendimentos, campanhas, fornecedores) e cartões
+  src/lancamentos/   lançamentos, parcelas, histórico, indicadores, lançar gastos fixos
+  src/painel/        dados do dashboard (categorias, empreendimentos, cartões, a pagar)
   drizzle/           migrations geradas (SQL)
 frontend/
-  app/pages/         lancamentos (lista + painel), novo, editar, cadastros, login
+  app/pages/         dashboard (index), historico, lancamentos/novo, editar, cadastros, login
   app/components/    formulário, painel de detalhe, indicadores, etiquetas...
   app/assets/css/    tokens do visual (cores, raios, sombras) — claro e escuro
 deploy/              trecho do Caddyfile para a VPS
@@ -75,8 +85,20 @@ Entre com o e-mail e a senha de `ADMIN_EMAIL`/`ADMIN_PASSWORD` do `backend/.env`
 - **Nada se apaga.** Lançamento é cancelado com motivo; cadastro é desativado.
   Toda criação, edição, pagamento e cancelamento vai para `eventos`, com antes e depois.
 - **Soma das parcelas = valor total**, conferido no contrato.
+- **Só descrição e valor são obrigatórios.** Categoria, forma de pagamento,
+  empreendimento, fornecedor, campanha e cartão podem ficar em branco e ser completados
+  depois; data do gasto em branco vale hoje. No dashboard, o que ficou sem categoria ou
+  empreendimento aparece como "Sem categoria"/"Sem empreendimento".
 - **Aviso de duplicidade**: mesmo fornecedor com mesmo código, ou mesmo valor em até
-  7 dias. A API responde 409 com os candidatos; a pessoa confirma e grava.
+  7 dias (sem fornecedor, compara com os outros sem fornecedor). A API responde 409 com
+  os candidatos; a pessoa confirma e grava.
+- **Cartões.** Com forma de pagamento de cartão, o lançamento pode dizer qual cartão
+  (opcional; com um cartão só, ele já vem escolhido). Com fechamento e vencimento da
+  fatura, o vencimento da compra sai da fatura (compra no dia do fechamento ou depois
+  cai na fatura seguinte). Cartão sem fatura (pré-pago) lança o gasto fixo já pago.
+  Orçamento do mês = lançado + fixos ainda não lançados.
+- **Gastos fixos** viram lançamento pelo botão "Lançar gastos fixos", um por mês
+  (repetir não duplica).
 - **Permissão = papel + setor.** `admin` vê e altera tudo; `editor` lança nos
   setores dele; `leitor` só consulta. Setor novo é uma linha em `setores`.
 

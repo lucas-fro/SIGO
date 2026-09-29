@@ -6,6 +6,7 @@ import {
   hoje,
   lancamentoSchema,
   somarMeses,
+  vencimentoDaFatura,
   type Fornecedor,
   type LancamentoDetalhe,
   type PossivelDuplicado,
@@ -18,6 +19,10 @@ import { useSincronizarLancamento } from '~/composables/useLancamentos'
 
 /*
   Formulário único de lançamento, para criar e para editar.
+
+  Só descrição e valor são obrigatórios: o resto classifica o gasto e pode ser
+  completado depois. A data vazia vale hoje, e as parcelas já nascem prontas
+  (à vista, vencendo na data do gasto).
 
   A validação roda duas vezes com o mesmo esquema: aqui, antes de enviar,
   para apontar o campo na hora; e na API, que é quem manda. O erro que vier de
@@ -49,12 +54,16 @@ const form = reactive({
   empreendimentoId: null as number | null,
   fornecedorId: null as number | null,
   campanhaId: null as number | null,
+  cartaoId: null as number | null,
   codigoIdentificacao: '',
   observacao: '',
 })
 const quantidade = ref(1)
 const primeiroVencimento = ref(hoje())
-/** Enquanto a pessoa não mexe no vencimento, ele acompanha a data do gasto. */
+/**
+ * Enquanto a pessoa não mexe no vencimento, ele é sugerido: a data do gasto,
+ * ou o vencimento da fatura quando o gasto é num cartão com fatura configurada.
+ */
 const vencimentoTocado = ref(false)
 const parcelas = ref<ParcelaForm[]>([{ valorCentavos: null, vencimento: hoje(), pagoEm: null }])
 
@@ -64,11 +73,12 @@ function preencher(l: LancamentoDetalhe) {
     descricao: l.descricao,
     valorCentavos: l.valorCentavos,
     dataGasto: l.dataGasto,
-    categoriaId: l.categoria.id,
-    formaPagamentoId: l.formaPagamento.id,
-    empreendimentoId: l.empreendimento.id,
-    fornecedorId: l.fornecedor.id,
+    categoriaId: l.categoria?.id ?? null,
+    formaPagamentoId: l.formaPagamento?.id ?? null,
+    empreendimentoId: l.empreendimento?.id ?? null,
+    fornecedorId: l.fornecedor?.id ?? null,
     campanhaId: l.campanha?.id ?? null,
+    cartaoId: l.cartao?.id ?? null,
     codigoIdentificacao: l.codigoIdentificacao ?? '',
     observacao: l.observacao ?? '',
   })
@@ -128,14 +138,64 @@ function aoMudarQuantidade() {
 }
 
 function aoMudarPrimeiroVencimento() {
-  vencimentoTocado.value = true
+  // Apagou o vencimento: volta para o sugerido (a data do gasto ou a fatura do cartão).
+  if (!primeiroVencimento.value) {
+    vencimentoTocado.value = false
+    primeiroVencimento.value = vencimentoSugerido.value ?? hoje()
+  } else {
+    vencimentoTocado.value = true
+  }
+  regenerar()
+}
+
+// ---------- cartão ----------
+
+const formaEscolhida = computed(() =>
+  cadastros.value?.formasPagamento.find((f) => f.id === form.formaPagamentoId),
+)
+const cartoesDaForma = computed(() =>
+  opcoesAtivas(
+    cadastros.value?.cartoes.filter(
+      (c) => c.setorId === form.setorId && c.formaPagamentoId === form.formaPagamentoId,
+    ),
+    form.cartaoId,
+  ),
+)
+const cartaoEscolhido = computed(() => cadastros.value?.cartoes.find((c) => c.id === form.cartaoId))
+
+/** Vencimento sugerido: o da fatura quando o cartão tem fechamento e vencimento; senão, a data do gasto. */
+const vencimentoSugerido = computed(() => {
+  if (!form.dataGasto) return null
+  const c = cartaoEscolhido.value
+  return c?.diaFechamento && c.diaVencimento
+    ? vencimentoDaFatura(form.dataGasto, c.diaFechamento, c.diaVencimento)
+    : form.dataGasto
+})
+
+function aplicarVencimentoSugerido() {
+  if (vencimentoTocado.value || !vencimentoSugerido.value) return
+  primeiroVencimento.value = vencimentoSugerido.value
   regenerar()
 }
 
 function aoMudarDataGasto() {
-  if (vencimentoTocado.value || !form.dataGasto) return
-  primeiroVencimento.value = form.dataGasto
-  regenerar()
+  aplicarVencimentoSugerido()
+}
+
+/**
+ * Forma que não é cartão limpa o cartão; forma de cartão com um cartão só já o
+ * escolhe. Em seguida o vencimento acompanha a fatura do cartão escolhido.
+ */
+function aoMudarForma() {
+  if (!formaEscolhida.value?.cartao) form.cartaoId = null
+  else if (!cartoesDaForma.value.some((c) => c.id === form.cartaoId)) {
+    form.cartaoId = cartoesDaForma.value.length === 1 ? cartoesDaForma.value[0]!.id : null
+  }
+  aplicarVencimentoSugerido()
+}
+
+function aoMudarCartao() {
+  aplicarVencimentoSugerido()
 }
 
 /** À vista: "já foi pago" marca o pagamento na data do gasto (ou hoje, se o gasto é futuro). */
@@ -239,9 +299,11 @@ async function salvar(confirmarDuplicidade = false) {
   erroGeral.value = null
   const payload = {
     ...form,
+    // Sem data do gasto, vale hoje (o esquema completa); parcela sem vencimento vence nela.
+    dataGasto: form.dataGasto || null,
     parcelas: parcelas.value.map((p) => ({
       valorCentavos: p.valorCentavos,
-      vencimento: p.vencimento,
+      vencimento: p.vencimento || form.dataGasto || hoje(),
       pagoEm: p.pagoEm || null,
     })),
     ...(editando.value ? {} : { confirmarDuplicidade }),
@@ -296,7 +358,9 @@ async function salvar(confirmarDuplicidade = false) {
       <section class="card">
         <header class="border-b border-line px-5 py-3.5">
           <h2 class="text-[14px] font-semibold text-ink">O gasto</h2>
-          <p class="hint">O que foi comprado ou contratado, de quem e quando.</p>
+          <p class="hint">
+            Só a descrição e o valor são obrigatórios; o resto pode ser completado depois.
+          </p>
         </header>
         <div class="grid gap-4 p-5 sm:grid-cols-2">
           <FormField
@@ -328,7 +392,7 @@ async function salvar(confirmarDuplicidade = false) {
             rotulo="Data do gasto"
             para="f-data"
             :erro="erro('dataGasto')"
-            dica="Define o mês em que o gasto entra nos totais."
+            dica="Define o mês em que o gasto entra nos totais. Em branco, vale hoje."
           >
             <input
               id="f-data"
@@ -353,6 +417,7 @@ async function salvar(confirmarDuplicidade = false) {
               :fornecedores="fornecedores ?? []"
               :invalid="!!erro('fornecedorId')"
               pode-criar
+              opcional
               @criar="abrirNovoFornecedor"
             />
           </FormField>
@@ -360,7 +425,6 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Código de identificação"
             para="f-codigo"
-            opcional
             :erro="erro('codigoIdentificacao')"
             dica="Nº da nota, do boleto, do pedido ou da transação no cartão. Ajuda a achar duplicidade."
             class="sm:col-span-2"
@@ -381,7 +445,8 @@ async function salvar(confirmarDuplicidade = false) {
         <header class="border-b border-line px-5 py-3.5">
           <h2 class="text-[14px] font-semibold text-ink">Classificação</h2>
           <p class="hint">
-            É por aqui que o gasto aparece nos totais por categoria e empreendimento.
+            É por aqui que o gasto aparece nos totais por categoria e empreendimento. Em branco,
+            entra como “Sem categoria” e “Sem empreendimento”.
           </p>
         </header>
         <div class="grid gap-4 p-5 sm:grid-cols-2">
@@ -415,7 +480,7 @@ async function salvar(confirmarDuplicidade = false) {
               :class="{ 'text-ghost': form.categoriaId === null }"
               :aria-invalid="!!erro('categoriaId') || undefined"
             >
-              <option :value="null" disabled>Escolha a categoria</option>
+              <option :value="null">Sem categoria</option>
               <option v-for="c in categorias" :key="c.id" :value="c.id">{{ c.nome }}</option>
             </select>
           </FormField>
@@ -428,7 +493,7 @@ async function salvar(confirmarDuplicidade = false) {
               :class="{ 'text-ghost': form.empreendimentoId === null }"
               :aria-invalid="!!erro('empreendimentoId') || undefined"
             >
-              <option :value="null" disabled>Escolha o empreendimento</option>
+              <option :value="null">Sem empreendimento</option>
               <option v-for="e in empreendimentos" :key="e.id" :value="e.id">{{ e.nome }}</option>
             </select>
           </FormField>
@@ -436,7 +501,6 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Campanha"
             para="f-campanha"
-            opcional
             :erro="erro('campanhaId')"
             class="sm:col-span-2"
           >
@@ -453,7 +517,7 @@ async function salvar(confirmarDuplicidade = false) {
         <header class="border-b border-line px-5 py-3.5">
           <h2 class="text-[14px] font-semibold text-ink">Pagamento</h2>
           <p class="hint">
-            Como e quando o gasto é pago. Parcelado no cartão? Informe as parcelas.
+            Como e quando o gasto é pago. Sem mexer aqui, fica à vista, vencendo na data do gasto.
           </p>
         </header>
         <div class="grid gap-4 p-5 sm:grid-cols-3">
@@ -469,9 +533,41 @@ async function salvar(confirmarDuplicidade = false) {
               class="input [&>option]:text-ink"
               :class="{ 'text-ghost': form.formaPagamentoId === null }"
               :aria-invalid="!!erro('formaPagamentoId') || undefined"
+              @change="aoMudarForma"
             >
-              <option :value="null" disabled>Escolha a forma de pagamento</option>
+              <option :value="null">Não informada</option>
               <option v-for="f in formas" :key="f.id" :value="f.id">{{ f.nome }}</option>
+            </select>
+          </FormField>
+
+          <!-- Forma de cartão: qual cartão (e a fatura dele define o vencimento). -->
+          <FormField
+            v-if="formaEscolhida?.cartao"
+            rotulo="Cartão"
+            para="f-cartao"
+            :erro="erro('cartaoId')"
+            :dica="
+              !cartoesDaForma.length
+                ? 'Nenhum cartão cadastrado para esta forma. Cadastre em Cadastros › Cartões para acompanhar o orçamento.'
+                : cartaoEscolhido?.diaFechamento
+                  ? `Fatura fecha dia ${cartaoEscolhido.diaFechamento} e vence dia ${cartaoEscolhido.diaVencimento}: o vencimento abaixo já segue a fatura.`
+                  : undefined
+            "
+            class="sm:col-span-3"
+          >
+            <select
+              id="f-cartao"
+              v-model="form.cartaoId"
+              class="input [&>option]:text-ink"
+              :class="{ 'text-ghost': form.cartaoId === null }"
+              :disabled="!cartoesDaForma.length"
+              :aria-invalid="!!erro('cartaoId') || undefined"
+              @change="aoMudarCartao"
+            >
+              <option :value="null">Não informado</option>
+              <option v-for="c in cartoesDaForma" :key="c.id" :value="c.id">
+                {{ c.nome }}{{ c.final ? ` •••• ${c.final}` : '' }}
+              </option>
             </select>
           </FormField>
 
@@ -582,7 +678,7 @@ async function salvar(confirmarDuplicidade = false) {
 
       <!-- Observação -->
       <section class="card p-5">
-        <FormField rotulo="Observação" para="f-obs" opcional :erro="erro('observacao')">
+        <FormField rotulo="Observação" para="f-obs" :erro="erro('observacao')">
           <textarea
             id="f-obs"
             v-model="form.observacao"
@@ -605,7 +701,7 @@ async function salvar(confirmarDuplicidade = false) {
           <TriangleAlert :size="16" class="text-warn" /> Possível duplicidade
         </div>
         <p class="mt-1 text-[12.5px] text-muted">
-          Já existe gasto parecido com este fornecedor. Confira se não é o mesmo.
+          Já existe gasto parecido com este. Confira se não é o mesmo.
         </p>
         <ul class="mt-3 flex flex-col gap-1.5">
           <li v-for="d in duplicados" :key="d.id" class="text-[12.5px]">
@@ -666,6 +762,9 @@ async function salvar(confirmarDuplicidade = false) {
             <dt class="text-faint">Pagamento</dt>
             <dd class="truncate text-right text-ink">
               {{ nome(cadastros?.formasPagamento, form.formaPagamentoId) }}
+              <span v-if="cartaoEscolhido" class="block truncate text-faint">{{
+                cartaoEscolhido.nome
+              }}</span>
             </dd>
           </div>
         </dl>

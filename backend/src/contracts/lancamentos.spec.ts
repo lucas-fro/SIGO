@@ -1,3 +1,4 @@
+import { hoje } from './datas.js'
 import { criarLancamentoSchema, listarLancamentosSchema } from './lancamentos.js'
 
 const valido = {
@@ -32,18 +33,38 @@ describe('criarLancamentoSchema', () => {
     expect(r.error?.issues.map((i) => i.path.join('.'))).toContain('parcelas')
   })
 
-  it('recusa valor zero, data inválida e campo obrigatório ausente, com mensagem por campo', () => {
+  it('só descrição e valor são obrigatórios: o resto vira null e a data vazia vale hoje', () => {
+    const r = criarLancamentoSchema.safeParse({
+      setorId: 1,
+      descricao: 'Anúncio em rádio',
+      valorCentavos: 50_000,
+      dataGasto: null,
+      parcelas: [{ valorCentavos: 50_000, vencimento: '2026-10-05' }],
+    })
+    expect(r.success).toBe(true)
+    expect(r.data?.dataGasto).toBe(hoje())
+    expect(r.data).toMatchObject({
+      categoriaId: null,
+      formaPagamentoId: null,
+      empreendimentoId: null,
+      fornecedorId: null,
+      campanhaId: null,
+      cartaoId: null,
+    })
+  })
+
+  it('recusa valor zero, data inválida e descrição vazia, com mensagem por campo', () => {
     const r = criarLancamentoSchema.safeParse({
       ...valido,
+      descricao: '  ',
       valorCentavos: 0,
       dataGasto: '2026-02-30',
-      categoriaId: null,
     })
     expect(r.success).toBe(false)
     const campos = r.error?.issues.map((i) => i.path.join('.'))
-    expect(campos).toEqual(expect.arrayContaining(['valorCentavos', 'dataGasto', 'categoriaId']))
-    const categoria = r.error?.issues.find((i) => i.path[0] === 'categoriaId')
-    expect(categoria?.message).toBe('Escolha a categoria')
+    expect(campos).toEqual(expect.arrayContaining(['descricao', 'valorCentavos', 'dataGasto']))
+    const descricao = r.error?.issues.find((i) => i.path[0] === 'descricao')
+    expect(descricao?.message).toBe('Descreva o gasto em poucas palavras (mínimo 3 letras)')
   })
 })
 

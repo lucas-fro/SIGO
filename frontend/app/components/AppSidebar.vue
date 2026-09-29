@@ -2,10 +2,11 @@
 import type { Component } from 'vue'
 import {
   CirclePlus,
+  History,
+  LayoutDashboard,
   LogOut,
   Moon,
   MoreHorizontal,
-  ReceiptText,
   Search,
   Settings2,
   Sun,
@@ -20,7 +21,7 @@ const { theme, toggle } = useTheme()
 const route = useRoute()
 const router = useRouter()
 
-// O número de parcelas vencidas aparece ao lado de "Lançamentos": é o que pede ação.
+// O número de parcelas vencidas aparece ao lado de "Histórico": é o que pede ação.
 const { data: indicadores } = useIndicadores()
 const vencidas = computed(() => indicadores.value?.vencido.parcelas ?? 0)
 
@@ -35,10 +36,11 @@ const grupos = computed<Array<{ rotulo: string; itens: Item[] }>>(() => [
   {
     rotulo: 'Operação',
     itens: [
+      { to: '/', rotulo: 'Dashboard', icone: LayoutDashboard },
       {
-        to: '/lancamentos',
-        rotulo: 'Lançamentos',
-        icone: ReceiptText,
+        to: '/historico',
+        rotulo: 'Histórico',
+        icone: History,
         contagem: vencidas.value || undefined,
       },
       ...(canEdit.value
@@ -52,9 +54,11 @@ const grupos = computed<Array<{ rotulo: string; itens: Item[] }>>(() => [
   },
 ])
 
+/** O detalhe e a edição de um lançamento fazem parte do Histórico. */
 function ativo(to: string): boolean {
-  if (to === '/lancamentos') {
-    return route.path === '/lancamentos' || /^\/lancamentos\/\d+/.test(route.path)
+  if (to === '/') return route.path === '/'
+  if (to === '/historico') {
+    return route.path === '/historico' || /^\/lancamentos\/\d+/.test(route.path)
   }
   return route.path === to || route.path.startsWith(`${to}/`)
 }
@@ -66,7 +70,7 @@ const campoBusca = ref<HTMLInputElement | null>(null)
 
 function buscar() {
   const termo = busca.value.trim()
-  void router.push({ path: '/lancamentos', query: termo ? { busca: termo } : {} })
+  void router.push({ path: '/historico', query: termo ? { busca: termo } : {} })
   busca.value = ''
   campoBusca.value?.blur()
 }

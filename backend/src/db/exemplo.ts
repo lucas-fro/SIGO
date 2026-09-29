@@ -1,15 +1,24 @@
-import { and, count, eq, inArray } from 'drizzle-orm'
+import { and, count, eq, inArray, isNull, like } from 'drizzle-orm'
 import { env } from '../config/env.js'
-import { hoje, inicioDoMes, somarDias, somarMeses } from '../contracts/datas.js'
+import {
+  diaDoMes,
+  hoje,
+  inicioDoMes,
+  somarDias,
+  somarMeses,
+  vencimentoDaFatura,
+} from '../contracts/datas.js'
 import { gerarParcelas } from '../contracts/parcelas.js'
 import { conectar } from './client.js'
 import {
   campanhas,
+  cartoes,
   categorias,
   empreendimentos,
   eventos,
   formasPagamento,
   fornecedores,
+  gastosFixos,
   lancamentos,
   parcelas,
   setores,
@@ -49,6 +58,205 @@ interface Gasto {
   primeiroVencimento: string
   /** Paga as parcelas cujo vencimento já passou, exceto as listadas aqui (ficam vencidas). */
   naoPagar?: number[]
+}
+
+/**
+ * Cartões de exemplo, com orçamento e gastos fixos, e três meses de fixos já
+ * lançados. Roda só quando ainda não há cartão, e só liga ao cartão os
+ * lançamentos de exemplo (fornecedor "(exemplo)").
+ */
+async function exemploCartoes() {
+  const [jaTem] = await db.select({ total: count() }).from(cartoes)
+  if (jaTem?.total) {
+    console.log('já existem cartões: cartões de exemplo não aplicados')
+    return
+  }
+
+  const dia = hoje()
+  const [marketing] = await db
+    .select({ id: setores.id })
+    .from(setores)
+    .where(eq(setores.slug, 'marketing'))
+  const [admin] = await db
+    .select({ id: usuarios.id })
+    .from(usuarios)
+    .where(eq(usuarios.email, env.ADMIN_EMAIL.toLowerCase()))
+  if (!marketing || !admin) throw new Error('rode antes db:seed e usuarios seed-admin')
+
+  const porNome = async <T extends { id: number; nome: string }>(linhas: Promise<T[]>) =>
+    new Map((await linhas).map((l) => [l.nome, l.id]))
+  const idForma = await porNome(
+    db.select({ id: formasPagamento.id, nome: formasPagamento.nome }).from(formasPagamento),
+  )
+  const idCategoria = await porNome(
+    db
+      .select({ id: categorias.id, nome: categorias.nome })
+      .from(categorias)
+      .where(eq(categorias.setorId, marketing.id)),
+  )
+  const idEmp = await porNome(
+    db.select({ id: empreendimentos.id, nome: empreendimentos.nome }).from(empreendimentos),
+  )
+  const pegar = (mapa: Map<string, number>, nome: string) => {
+    const id = mapa.get(nome)
+    if (!id) throw new Error(`cadastro não encontrado: ${nome}`)
+    return id
+  }
+  const institucional = pegar(idEmp, 'Institucional')
+  const standAurora = idEmp.get('Residencial Jardim Aurora (exemplo)') ?? institucional
+  const ferramentas = pegar(idCategoria, 'Ferramentas e assinaturas')
+
+  const novosFornecedores = [
+    'Canva (exemplo)',
+    'RD Station (exemplo)',
+    'Freepik (exemplo)',
+    'Hostinger (exemplo)',
+    'Mercado Bom Preço (exemplo)',
+  ]
+  await db
+    .insert(fornecedores)
+    .values(novosFornecedores.map((nome) => ({ nome, criadoPor: admin.id })))
+  const idForn = await porNome(
+    db
+      .select({ id: fornecedores.id, nome: fornecedores.nome })
+      .from(fornecedores)
+      .where(inArray(fornecedores.nome, novosFornecedores)),
+  )
+
+  const [cartaoMkt] = await db
+    .insert(cartoes)
+    .values({
+      setorId: marketing.id,
+      nome: 'Cartão Marketing (exemplo)',
+      final: '4821',
+      formaPagamentoId: pegar(idForma, 'Cartão de crédito'),
+      orcamentoMensalCentavos: 3_500_000,
+      diaFechamento: 3,
+      diaVencimento: 10,
+    })
+    .returning()
+  const [cartaoPlantao] = await db
+    .insert(cartoes)
+    .values({
+      setorId: marketing.id,
+      nome: 'Cartão do Plantão (exemplo)',
+      final: '7730',
+      formaPagamentoId: pegar(idForma, 'Cartão pré-pago'),
+      orcamentoMensalCentavos: 250_000,
+    })
+    .returning()
+  if (!cartaoMkt || !cartaoPlantao) throw new Error('cartões de exemplo não foram criados')
+
+  const fixoMkt = (
+    descricao: string,
+    valorCentavos: number,
+    diaCobranca: number,
+    forn: string,
+  ) => ({
+    cartaoId: cartaoMkt.id,
+    descricao,
+    valorCentavos,
+    diaCobranca,
+    fornecedorId: pegar(idForn, forn),
+    categoriaId: ferramentas,
+    empreendimentoId: institucional,
+  })
+  const fixos = await db
+    .insert(gastosFixos)
+    .values([
+      fixoMkt('Canva Pro', 11_990, 5, 'Canva (exemplo)'),
+      fixoMkt('RD Station Marketing', 129_000, 12, 'RD Station (exemplo)'),
+      fixoMkt('Hospedagem do site', 24_900, 15, 'Hostinger (exemplo)'),
+      fixoMkt('Banco de imagens', 8_990, 20, 'Freepik (exemplo)'),
+      {
+        cartaoId: cartaoPlantao.id,
+        descricao: 'Café e água do plantão',
+        valorCentavos: 38_000,
+        diaCobranca: 1,
+        fornecedorId: pegar(idForn, 'Mercado Bom Preço (exemplo)'),
+        categoriaId: pegar(idCategoria, 'Stand de vendas'),
+        empreendimentoId: standAurora,
+      },
+    ])
+    .returning()
+
+  // A mídia de exemplo paga no crédito passa a ser do cartão de marketing.
+  const ligados = await db
+    .update(lancamentos)
+    .set({ cartaoId: cartaoMkt.id })
+    .where(
+      and(
+        eq(lancamentos.formaPagamentoId, cartaoMkt.formaPagamentoId),
+        isNull(lancamentos.cartaoId),
+        inArray(
+          lancamentos.fornecedorId,
+          db
+            .select({ id: fornecedores.id })
+            .from(fornecedores)
+            .where(like(fornecedores.nome, '%(exemplo)')),
+        ),
+      ),
+    )
+    .returning({ id: lancamentos.id })
+
+  // Três meses de fixos lançados; no mês corrente, alguns ficam por lançar.
+  const pendentesNoMes = new Set([
+    'Hospedagem do site',
+    'Banco de imagens',
+    'Café e água do plantão',
+  ])
+  let criados = 0
+  await db.transaction(async (tx) => {
+    for (let m = -3; m <= 0; m++) {
+      const mes = inicioDoMes(somarMeses(dia, m)).slice(0, 7)
+      for (const fixo of fixos) {
+        if (m === 0 && pendentesNoMes.has(fixo.descricao)) continue
+        const cartao = fixo.cartaoId === cartaoMkt.id ? cartaoMkt : cartaoPlantao
+        const dataGasto = diaDoMes(mes, fixo.diaCobranca)
+        const vencimento =
+          cartao.diaFechamento && cartao.diaVencimento
+            ? vencimentoDaFatura(dataGasto, cartao.diaFechamento, cartao.diaVencimento)
+            : dataGasto
+        const criadoEm = new Date(`${dataGasto}T13:00:00Z`)
+        const [novo] = await tx
+          .insert(lancamentos)
+          .values({
+            setorId: marketing.id,
+            descricao: `${fixo.descricao} — ${mes.slice(5, 7)}/${mes.slice(0, 4)}`,
+            valorCentavos: fixo.valorCentavos,
+            dataGasto,
+            categoriaId: fixo.categoriaId,
+            formaPagamentoId: cartao.formaPagamentoId,
+            empreendimentoId: fixo.empreendimentoId,
+            fornecedorId: fixo.fornecedorId,
+            cartaoId: cartao.id,
+            gastoFixoId: fixo.id,
+            criadoPor: admin.id,
+            criadoEm,
+          })
+          .returning({ id: lancamentos.id })
+        await tx.insert(parcelas).values({
+          lancamentoId: novo!.id,
+          numero: 1,
+          valorCentavos: fixo.valorCentavos,
+          vencimento,
+          pagoEm: vencimento <= dia ? vencimento : null,
+        })
+        await tx.insert(eventos).values({
+          lancamentoId: novo!.id,
+          tipo: 'criado',
+          usuarioId: admin.id,
+          em: criadoEm,
+          dados: { origem: 'gasto_fixo' },
+        })
+        criados++
+      }
+    }
+  })
+
+  console.log(
+    `2 cartões de exemplo, ${fixos.length} gastos fixos, ${criados} lançamentos de fixos e ${ligados.length} gastos de exemplo ligados ao cartão`,
+  )
 }
 
 try {
@@ -305,6 +513,7 @@ try {
 
     console.log(`${gastos.length} lançamentos de exemplo criados`)
   }
+  await exemploCartoes()
 } finally {
   await pool.end()
 }

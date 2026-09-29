@@ -33,6 +33,15 @@ export function reaisIndicador(centavos: number | null | undefined): string {
   return brlInteiro.format(valor)
 }
 
+/** Rótulo de eixo: curto e sem centavos ("R$ 40 mil", "R$ 1,5 mi"). */
+export function reaisEixo(centavos: number): string {
+  const valor = centavos / 100
+  const umaCasa = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+  if (Math.abs(valor) >= 1_000_000) return `R$ ${umaCasa(valor / 1_000_000)} mi`
+  if (Math.abs(valor) >= 1_000) return `R$ ${umaCasa(valor / 1_000)} mil`
+  return `R$ ${Math.round(valor)}`
+}
+
 const MESES_LONGOS = [
   'janeiro',
   'fevereiro',
@@ -51,6 +60,12 @@ const MESES_LONGOS = [
 /** "2026-08-15" ou "2026-08" → "agosto". */
 export const nomeMes = (data: string): string => MESES_LONGOS[Number(data.slice(5, 7)) - 1] ?? ''
 
+/** "2026-08" → "Agosto de 2026". */
+export function mesPorExtenso(mes: string): string {
+  const nome = nomeMes(mes)
+  return nome ? `${nome.charAt(0).toUpperCase()}${nome.slice(1)} de ${mes.slice(0, 4)}` : ''
+}
+
 export const ROTULO_PAGAMENTO: Record<SituacaoPagamento, string> = {
   pago: 'Pago',
   parcial: 'Parcial',
@@ -67,6 +82,15 @@ export function mesCurto(anoMes: string): string {
   const [ano, mes] = anoMes.split('-')
   const nome = MESES[Number(mes) - 1]
   return ano && nome ? `${nome}/${ano.slice(2)}` : anoMes
+}
+
+/**
+ * Campo de dia (1 a 31) → número ou `null` quando vazio. O `v-model` num
+ * `<input type="number">` entrega número depois que a pessoa digita e `''`
+ * com o campo vazio, então o valor pode chegar como texto ou como número.
+ */
+export function paraDia(valor: string | number | null | undefined): number | null {
+  return valor === null || valor === undefined || String(valor).trim() === '' ? null : Number(valor)
 }
 
 export function count(value: number | null | undefined): string {

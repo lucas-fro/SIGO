@@ -16,6 +16,11 @@ export const id = (error = 'Valor inválido') =>
 /** Chave vinda da query string, onde tudo chega como texto. */
 export const idQuery = z.coerce.number().int().positive()
 
+/** Mês de referência na query string: "AAAA-MM". */
+export const mesQuery = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, { error: 'Mês inválido (use AAAA-MM)' })
+
 /**
  * Data de calendário "AAAA-MM-DD". Sem hora e sem fuso de propósito: data do
  * gasto, vencimento e pagamento são dias, e um `Date` com fuso troca de dia no

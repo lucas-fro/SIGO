@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { data, id, idQuery, textoOpcional, valorCentavos, type Ref } from './comum.js'
+import { data, id, idQuery, mesQuery, textoOpcional, valorCentavos, type Ref } from './comum.js'
+import { hoje } from './datas.js'
 import { somaCentavos, type SituacaoPagamento } from './parcelas.js'
 
 /*
@@ -35,6 +36,17 @@ export const parcelaSchema = z.object({
 })
 export type ParcelaInput = z.output<typeof parcelaSchema>
 
+/** Cadastro opcional: ausente ou vazio vira null. */
+const idOpcional = () =>
+  id()
+    .nullish()
+    .transform((v) => v ?? null)
+
+/*
+  Só descrição e valor são obrigatórios: o gasto entra rápido e a
+  classificação pode ser completada depois. O setor vem da pessoa e as
+  parcelas o formulário já monta (à vista, vencendo na data do gasto).
+*/
 const campos = z.object({
   setorId: id('Escolha o setor'),
   descricao: z
@@ -43,14 +55,17 @@ const campos = z.object({
     .min(3, { error: 'Descreva o gasto em poucas palavras (mínimo 3 letras)' })
     .max(300, { error: 'Use no máximo 300 caracteres' }),
   valorCentavos: valorCentavos('Informe o valor total'),
-  dataGasto: data('Informe a data do gasto'),
-  categoriaId: id('Escolha a categoria'),
-  formaPagamentoId: id('Escolha a forma de pagamento'),
-  empreendimentoId: id('Escolha o empreendimento (ou Institucional)'),
-  fornecedorId: id('Escolha o fornecedor'),
-  campanhaId: id()
+  /** Sem data, vale hoje (em São Paulo): todo gasto precisa cair num mês dos totais. */
+  dataGasto: data('Data do gasto inválida')
     .nullish()
-    .transform((v) => v ?? null),
+    .transform((v) => v ?? hoje()),
+  categoriaId: idOpcional(),
+  formaPagamentoId: idOpcional(),
+  empreendimentoId: idOpcional(),
+  fornecedorId: idOpcional(),
+  campanhaId: idOpcional(),
+  /** Qual cartão, quando a forma de pagamento é cartão (a API confere). */
+  cartaoId: idOpcional(),
   codigoIdentificacao: textoOpcional(100),
   observacao: textoOpcional(2000),
   parcelas: z
@@ -110,6 +125,7 @@ export const listarLancamentosSchema = z.object({
   empreendimentoId: idQuery.optional(),
   fornecedorId: idQuery.optional(),
   campanhaId: idQuery.optional(),
+  cartaoId: idQuery.optional(),
   situacao: z.enum([...SITUACOES_LANCAMENTO, 'todos']).default('ativo'),
   /** `em_aberto` inclui os vencidos e os parcialmente pagos: tudo o que ainda tem parcela a pagar. */
   pagamento: z.enum(FILTROS_PAGAMENTO).optional(),
@@ -134,17 +150,19 @@ export interface ResumoPagamento {
   emAbertoCentavos: number
 }
 
+/** Categoria, forma, empreendimento, fornecedor, campanha e cartão podem faltar (null). */
 export interface LancamentoResumo {
   id: number
   setor: Ref
   descricao: string
   valorCentavos: number
   dataGasto: string
-  categoria: Ref
-  formaPagamento: Ref
-  empreendimento: Ref
-  fornecedor: Ref & { documento: string | null }
+  categoria: Ref | null
+  formaPagamento: Ref | null
+  empreendimento: Ref | null
+  fornecedor: (Ref & { documento: string | null }) | null
   campanha: Ref | null
+  cartao: Ref | null
   codigoIdentificacao: string | null
   situacao: SituacaoLancamento
   pagamento: ResumoPagamento
@@ -185,6 +203,8 @@ export interface DadosEvento {
   /** `pagamento_*`: número da parcela e a data registrada. */
   parcela?: number
   pagoEm?: string | null
+  /** `criado`: de onde veio o lançamento, quando não foi digitado. */
+  origem?: 'gasto_fixo'
 }
 
 export interface Evento {
@@ -204,8 +224,37 @@ export interface LancamentoDetalhe extends LancamentoResumo {
   cancelamento: { em: string; por: Ref; motivo: string } | null
 }
 
+/** Lança, de uma vez, os gastos fixos de um cartão num mês. */
+export const lancarFixosSchema = z.object({
+  cartaoId: id('Escolha o cartão'),
+  mes: z
+    .string({ error: 'Escolha o mês' })
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, { error: 'Mês inválido' }),
+})
+export type LancarFixosInput = z.output<typeof lancarFixosSchema>
+
+/** Quais gastos fixos de um cartão já têm lançamento ativo num mês. */
+export const fixosLancadosSchema = z.object({
+  cartaoId: idQuery,
+  mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { error: 'Mês inválido' }),
+})
+export type FiltrosFixosLancados = z.output<typeof fixosLancadosSchema>
+
+export interface FixosLancados {
+  gastoFixoIds: number[]
+}
+
+export interface ResultadoLancarFixos {
+  /** Ids dos lançamentos criados agora. */
+  criados: number[]
+  /** Gastos fixos que já tinham lançamento ativo no mês e ficaram de fora. */
+  jaLancados: number
+}
+
+/** Sem `mes` ("AAAA-MM"), o mês de referência é o corrente. */
 export const indicadoresSchema = z.object({
   setorId: idQuery.optional(),
+  mes: mesQuery.optional(),
 })
 export type FiltrosIndicadores = z.output<typeof indicadoresSchema>
 
@@ -215,17 +264,33 @@ export interface TotalParcelas {
   parcelas: number
 }
 
-/** A faixa de indicadores do topo da lista: o que está acontecendo agora. */
+/**
+ * A faixa de indicadores do topo do dashboard. O gasto e a série seguem o mês
+ * de referência; em aberto, vencido e os próximos 7 dias são sempre de hoje
+ * (é situação, não gasto de um mês).
+ */
 export interface Indicadores {
-  /** Hoje em São Paulo ("AAAA-MM-DD"): a referência de todas as contas abaixo. */
+  /** Hoje em São Paulo ("AAAA-MM-DD"): a referência de em aberto, vencido e próximos 7 dias. */
   hoje: string
+  /** Mês de referência ("AAAA-MM"): o pedido ou, sem pedido, o corrente. */
+  mes: string
   /**
-   * Gasto do mês até hoje, comparado com o mesmo trecho do mês anterior (do dia
-   * 1 até o mesmo dia). Comparar o mês corrente com o anterior inteiro faria
-   * todo início de mês parecer uma queda.
+   * Gasto do mês de referência. No mês corrente vai até hoje e se compara com
+   * o mesmo trecho do mês anterior (do dia 1 até o mesmo dia): comparar com o
+   * anterior inteiro faria todo início de mês parecer uma queda. Num mês que
+   * já terminou, é o mês inteiro contra o anterior inteiro.
    */
   gastoMes: { centavos: number; anteriorCentavos: number; lancamentos: number }
-  /** Gasto por mês (data do gasto), dos últimos 12 meses até o atual, sem buracos. */
+  /**
+   * Gasto do ano do mês de referência, de 1º de janeiro até o mesmo corte do
+   * `gastoMes` (hoje, no mês corrente; o fim do mês, nos outros), comparado com
+   * o mesmo trecho do ano anterior.
+   */
+  gastoAno: { centavos: number; anteriorCentavos: number }
+  /**
+   * Gasto por mês (data do gasto), 12 meses sem buracos: a janela mais recente
+   * que contém o mês de referência (`janelaDe12Meses`).
+   */
   serieMensal: Array<{ mes: string; centavos: number }>
   emAberto: TotalParcelas
   vencido: TotalParcelas

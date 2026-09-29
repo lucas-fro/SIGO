@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Check, ChevronsUpDown, Plus, Search } from 'lucide-vue-next'
+import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-vue-next'
 import { formatarDocumento, normalizarDocumento, type Fornecedor } from '#contracts'
 
 /*
   Escolha de fornecedor com busca por nome (sem acento) ou por CPF/CNPJ, e
   atalho para cadastrar quando não existe. Teclado: setas, Enter e Esc.
+  Com `opcional`, dá para voltar a deixar sem fornecedor.
 */
 const model = defineModel<number | null>({ required: true })
 const props = defineProps<{
@@ -12,6 +13,7 @@ const props = defineProps<{
   fornecedores: Fornecedor[]
   invalid?: boolean
   podeCriar?: boolean
+  opcional?: boolean
 }>()
 const emit = defineEmits<{ criar: [nome: string] }>()
 
@@ -76,6 +78,11 @@ function criar() {
   fechar()
 }
 
+function limpar() {
+  model.value = null
+  fechar()
+}
+
 function tecla(evento: KeyboardEvent) {
   const n = Math.max(total.value, 1)
   if (evento.key === 'ArrowDown') {
@@ -114,7 +121,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', cliqueFora))
 </script>
 
 <template>
-  <div ref="raiz" class="relative" :data-modal-aberto="aberto || undefined">
+  <div ref="raiz" class="relative" :data-lista-aberta="aberto || undefined">
     <button
       :id="id"
       type="button"
@@ -130,7 +137,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', cliqueFora))
           · {{ formatarDocumento(selecionado.documento) }}
         </span>
       </span>
-      <span v-else class="flex-1 truncate text-ghost">Escolha ou cadastre o fornecedor</span>
+      <span v-else class="flex-1 truncate text-ghost">{{
+        opcional ? 'Sem fornecedor' : 'Escolha ou cadastre o fornecedor'
+      }}</span>
       <ChevronsUpDown :size="15" class="shrink-0 text-faint" />
     </button>
 
@@ -195,13 +204,25 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', cliqueFora))
         </li>
       </ul>
 
-      <div v-if="podeCriar && !mostrarCriar" class="border-t border-line p-1">
+      <div
+        v-if="(podeCriar && !mostrarCriar) || (opcional && model !== null)"
+        class="border-t border-line p-1"
+      >
         <button
+          v-if="podeCriar && !mostrarCriar"
           type="button"
           class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] font-medium text-accent-text hover:bg-sunken"
           @click="criar"
         >
           <Plus :size="15" /> Cadastrar novo fornecedor
+        </button>
+        <button
+          v-if="opcional && model !== null"
+          type="button"
+          class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted hover:bg-sunken hover:text-ink"
+          @click="limpar"
+        >
+          <X :size="15" /> Deixar sem fornecedor
         </button>
       </div>
     </div>

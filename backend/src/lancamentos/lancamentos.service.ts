@@ -8,6 +8,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lte,
   or,
@@ -15,24 +16,37 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { alias, type PgTable } from 'drizzle-orm/pg-core'
-import { enxergaSetor, exigirEdicaoNoSetor, setoresVisiveis } from '../common/acesso.js'
+import { enxergaSetor, escopoDeSetor, exigirEdicaoNoSetor } from '../common/acesso.js'
 import { erroDeValidacao } from '../common/validacao.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
 import type { ErroValidacao } from '../contracts/comum.js'
-import { fimDoMes, hoje, inicioDoMes, somarDias, somarMeses } from '../contracts/datas.js'
+import {
+  diaDoMes,
+  fimDoMes,
+  hoje,
+  janelaDe12Meses,
+  somarDias,
+  somarMeses,
+  somarMesesAoMes,
+  vencimentoDaFatura,
+} from '../contracts/datas.js'
 import { normalizarDocumento } from '../contracts/documento.js'
 import type {
   Alteracao,
   CriarLancamentoInput,
+  FiltrosFixosLancados,
   FiltrosLancamentos,
+  FixosLancados,
   Indicadores,
   LancamentoDetalhe,
   LancamentoInput,
   LancamentoResumo,
+  LancarFixosInput,
   ListaLancamentos,
   ParcelaInput,
   PossivelDuplicado,
   RespostaDuplicidade,
+  ResultadoLancarFixos,
   SituacaoLancamento,
 } from '../contracts/lancamentos.js'
 import { situacaoPagamento } from '../contracts/parcelas.js'
@@ -40,11 +54,13 @@ import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
 import {
   campanhas,
+  cartoes,
   categorias,
   empreendimentos,
   eventos,
   formasPagamento,
   fornecedores,
+  gastosFixos,
   lancamentos,
   parcelas,
   setores,
@@ -104,6 +120,8 @@ function camposResumo(resumo: Resumo) {
     fornecedorDocumento: fornecedores.documento,
     campanhaId: campanhas.id,
     campanhaNome: campanhas.nome,
+    cartaoId: cartoes.id,
+    cartaoNome: cartoes.nome,
     codigoIdentificacao: lancamentos.codigoIdentificacao,
     situacao: lancamentos.situacao,
     criadoEm: lancamentos.criadoEm,
@@ -122,17 +140,19 @@ interface LinhaResumo {
   descricao: string
   valorCentavos: number
   dataGasto: string
-  categoriaId: number
-  categoriaNome: string
-  formaPagamentoId: number
-  formaPagamentoNome: string
-  empreendimentoId: number
-  empreendimentoNome: string
-  fornecedorId: number
-  fornecedorNome: string
+  categoriaId: number | null
+  categoriaNome: string | null
+  formaPagamentoId: number | null
+  formaPagamentoNome: string | null
+  empreendimentoId: number | null
+  empreendimentoNome: string | null
+  fornecedorId: number | null
+  fornecedorNome: string | null
   fornecedorDocumento: string | null
   campanhaId: number | null
   campanhaNome: string | null
+  cartaoId: number | null
+  cartaoNome: string | null
   codigoIdentificacao: string | null
   situacao: SituacaoLancamento
   criadoEm: Date
@@ -155,6 +175,10 @@ function comoData(valor: string | Date | null): string | null {
   return valor.slice(0, 10)
 }
 
+/** Cadastro opcional já com o nome resolvido, ou null quando o lançamento não tem. */
+const ref = (id: number | null, nome: string | null) =>
+  id === null ? null : { id, nome: nome ?? '' }
+
 function paraResumo(r: LinhaResumo): LancamentoResumo {
   const quantidade = Number(r.parcelasQtd)
   const pagas = Number(r.parcelasPagas)
@@ -164,11 +188,15 @@ function paraResumo(r: LinhaResumo): LancamentoResumo {
     descricao: r.descricao,
     valorCentavos: r.valorCentavos,
     dataGasto: r.dataGasto,
-    categoria: { id: r.categoriaId, nome: r.categoriaNome },
-    formaPagamento: { id: r.formaPagamentoId, nome: r.formaPagamentoNome },
-    empreendimento: { id: r.empreendimentoId, nome: r.empreendimentoNome },
-    fornecedor: { id: r.fornecedorId, nome: r.fornecedorNome, documento: r.fornecedorDocumento },
-    campanha: r.campanhaId === null ? null : { id: r.campanhaId, nome: r.campanhaNome ?? '' },
+    categoria: ref(r.categoriaId, r.categoriaNome),
+    formaPagamento: ref(r.formaPagamentoId, r.formaPagamentoNome),
+    empreendimento: ref(r.empreendimentoId, r.empreendimentoNome),
+    fornecedor:
+      r.fornecedorId === null
+        ? null
+        : { id: r.fornecedorId, nome: r.fornecedorNome ?? '', documento: r.fornecedorDocumento },
+    campanha: ref(r.campanhaId, r.campanhaNome),
+    cartao: ref(r.cartaoId, r.cartaoNome),
     codigoIdentificacao: r.codigoIdentificacao,
     situacao: r.situacao,
     pagamento: {
@@ -196,11 +224,12 @@ interface Atual {
   descricao: string
   valorCentavos: number
   dataGasto: string
-  categoriaId: number
-  formaPagamentoId: number
-  empreendimentoId: number
-  fornecedorId: number
+  categoriaId: number | null
+  formaPagamentoId: number | null
+  empreendimentoId: number | null
+  fornecedorId: number | null
   campanhaId: number | null
+  cartaoId: number | null
   codigoIdentificacao: string | null
   observacao: string | null
   situacao: SituacaoLancamento
@@ -219,6 +248,7 @@ const REFERENCIAS: Array<{
   { campo: 'empreendimentoId', rotulo: 'Empreendimento', tabela: empreendimentos },
   { campo: 'fornecedorId', rotulo: 'Fornecedor', tabela: fornecedores },
   { campo: 'campanhaId', rotulo: 'Campanha', tabela: campanhas },
+  { campo: 'cartaoId', rotulo: 'Cartão', tabela: cartoes },
 ]
 
 const SIMPLES: Array<{ campo: keyof Atual & keyof LancamentoInput; rotulo: string }> = [
@@ -245,11 +275,12 @@ export class LancamentosService {
         .select(camposResumo(resumo))
         .from(lancamentos)
         .innerJoin(setores, eq(setores.id, lancamentos.setorId))
-        .innerJoin(categorias, eq(categorias.id, lancamentos.categoriaId))
-        .innerJoin(formasPagamento, eq(formasPagamento.id, lancamentos.formaPagamentoId))
-        .innerJoin(empreendimentos, eq(empreendimentos.id, lancamentos.empreendimentoId))
-        .innerJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
+        .leftJoin(categorias, eq(categorias.id, lancamentos.categoriaId))
+        .leftJoin(formasPagamento, eq(formasPagamento.id, lancamentos.formaPagamentoId))
+        .leftJoin(empreendimentos, eq(empreendimentos.id, lancamentos.empreendimentoId))
+        .leftJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
         .leftJoin(campanhas, eq(campanhas.id, lancamentos.campanhaId))
+        .leftJoin(cartoes, eq(cartoes.id, lancamentos.cartaoId))
         .innerJoin(resumo, eq(resumo.lancamentoId, lancamentos.id))
         .where(where)
         .orderBy(desc(lancamentos.dataGasto), desc(lancamentos.id))
@@ -262,7 +293,7 @@ export class LancamentosService {
           emAberto: sql<string>`coalesce(sum(${resumo.emAbertoCentavos}), 0)::bigint`,
         })
         .from(lancamentos)
-        .innerJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
+        .leftJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
         .innerJoin(resumo, eq(resumo.lancamentoId, lancamentos.id))
         .where(where),
     ])
@@ -296,11 +327,12 @@ export class LancamentosService {
       })
       .from(lancamentos)
       .innerJoin(setores, eq(setores.id, lancamentos.setorId))
-      .innerJoin(categorias, eq(categorias.id, lancamentos.categoriaId))
-      .innerJoin(formasPagamento, eq(formasPagamento.id, lancamentos.formaPagamentoId))
-      .innerJoin(empreendimentos, eq(empreendimentos.id, lancamentos.empreendimentoId))
-      .innerJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
+      .leftJoin(categorias, eq(categorias.id, lancamentos.categoriaId))
+      .leftJoin(formasPagamento, eq(formasPagamento.id, lancamentos.formaPagamentoId))
+      .leftJoin(empreendimentos, eq(empreendimentos.id, lancamentos.empreendimentoId))
+      .leftJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
       .leftJoin(campanhas, eq(campanhas.id, lancamentos.campanhaId))
+      .leftJoin(cartoes, eq(cartoes.id, lancamentos.cartaoId))
       .innerJoin(resumo, eq(resumo.lancamentoId, lancamentos.id))
       .innerJoin(criador, eq(criador.id, lancamentos.criadoPor))
       .leftJoin(cancelador, eq(cancelador.id, lancamentos.canceladoPor))
@@ -394,6 +426,7 @@ export class LancamentosService {
           empreendimentoId: entrada.empreendimentoId,
           fornecedorId: entrada.fornecedorId,
           campanhaId: entrada.campanhaId,
+          cartaoId: entrada.cartaoId,
           codigoIdentificacao: entrada.codigoIdentificacao,
           observacao: entrada.observacao,
           criadoPor: usuario.id,
@@ -444,6 +477,7 @@ export class LancamentosService {
           empreendimentoId: entrada.empreendimentoId,
           fornecedorId: entrada.fornecedorId,
           campanhaId: entrada.campanhaId,
+          cartaoId: entrada.cartaoId,
           codigoIdentificacao: entrada.codigoIdentificacao,
           observacao: entrada.observacao,
           atualizadoPor: usuario.id,
@@ -548,34 +582,183 @@ export class LancamentosService {
     return this.detalhar(usuario, lancamentoId)
   }
 
+  /** Quais gastos fixos do cartão já têm lançamento ativo no mês (para a tela avisar antes). */
+  async fixosLancados(
+    usuario: UsuarioSessao,
+    { cartaoId, mes }: FiltrosFixosLancados,
+  ): Promise<FixosLancados> {
+    const [cartao] = await this.db
+      .select({ setorId: cartoes.setorId })
+      .from(cartoes)
+      .where(eq(cartoes.id, cartaoId))
+    if (!cartao || !enxergaSetor(usuario, cartao.setorId)) {
+      throw new NotFoundException('Cartão não encontrado')
+    }
+    const inicio = `${mes}-01`
+    const linhas = await this.db
+      .selectDistinct({ gastoFixoId: lancamentos.gastoFixoId })
+      .from(lancamentos)
+      .where(
+        and(
+          eq(lancamentos.cartaoId, cartaoId),
+          eq(lancamentos.situacao, 'ativo'),
+          isNotNull(lancamentos.gastoFixoId),
+          between(lancamentos.dataGasto, inicio, fimDoMes(inicio)),
+        ),
+      )
+    return { gastoFixoIds: linhas.map((l) => l.gastoFixoId!) }
+  }
+
+  /**
+   * Lança, de uma vez, os gastos fixos ativos de um cartão num mês.
+   *
+   * Gasto fixo que já tem lançamento ativo no mês fica de fora, então clicar
+   * duas vezes não duplica. A data do gasto é o dia da cobrança, e o
+   * vencimento sai da fatura do cartão quando ela está configurada.
+   */
+  async lancarFixos(
+    usuario: UsuarioSessao,
+    { cartaoId, mes }: LancarFixosInput,
+  ): Promise<ResultadoLancarFixos> {
+    const [cartao] = await this.db.select().from(cartoes).where(eq(cartoes.id, cartaoId))
+    if (!cartao || !enxergaSetor(usuario, cartao.setorId)) {
+      throw new NotFoundException('Cartão não encontrado')
+    }
+    exigirEdicaoNoSetor(usuario, cartao.setorId)
+    if (!cartao.ativo) throw new ConflictException('Este cartão está desativado')
+
+    const inicio = `${mes}-01`
+    const fim = fimDoMes(inicio)
+    const [ano, numeroMes] = mes.split('-')
+
+    return this.db.transaction(async (tx) => {
+      // Dois cliques ao mesmo tempo esperam um pelo outro; o segundo encontra tudo lançado.
+      await tx.execute(sql`select pg_advisory_xact_lock(7301, ${cartao.id})`)
+
+      const fixos = await tx
+        .select()
+        .from(gastosFixos)
+        .where(and(eq(gastosFixos.cartaoId, cartao.id), eq(gastosFixos.ativo, true)))
+        .orderBy(asc(gastosFixos.diaCobranca), asc(gastosFixos.id))
+      if (!fixos.length) return { criados: [], jaLancados: 0 }
+
+      const existentes = await tx
+        .select({ gastoFixoId: lancamentos.gastoFixoId })
+        .from(lancamentos)
+        .where(
+          and(
+            inArray(
+              lancamentos.gastoFixoId,
+              fixos.map((f) => f.id),
+            ),
+            eq(lancamentos.situacao, 'ativo'),
+            between(lancamentos.dataGasto, inicio, fim),
+          ),
+        )
+      const lancados = new Set(existentes.map((e) => e.gastoFixoId))
+
+      const criados: number[] = []
+      for (const fixo of fixos) {
+        if (lancados.has(fixo.id)) continue
+        const dataGasto = diaDoMes(mes, fixo.diaCobranca)
+        const temFatura = !!(cartao.diaFechamento && cartao.diaVencimento)
+        const vencimento = temFatura
+          ? vencimentoDaFatura(dataGasto, cartao.diaFechamento!, cartao.diaVencimento!)
+          : dataGasto
+        // Sem fatura (pré-pago), o dinheiro sai na hora da cobrança: nasce pago.
+        const pagoEm = !temFatura && dataGasto <= hoje() ? dataGasto : null
+
+        const [novo] = await tx
+          .insert(lancamentos)
+          .values({
+            setorId: cartao.setorId,
+            descricao: `${fixo.descricao} — ${numeroMes}/${ano}`,
+            valorCentavos: fixo.valorCentavos,
+            dataGasto,
+            categoriaId: fixo.categoriaId,
+            formaPagamentoId: cartao.formaPagamentoId,
+            empreendimentoId: fixo.empreendimentoId,
+            fornecedorId: fixo.fornecedorId,
+            cartaoId: cartao.id,
+            gastoFixoId: fixo.id,
+            criadoPor: usuario.id,
+          })
+          .returning({ id: lancamentos.id })
+        const lancamentoId = novo!.id
+
+        await tx.insert(parcelas).values({
+          lancamentoId,
+          numero: 1,
+          valorCentavos: fixo.valorCentavos,
+          vencimento,
+          pagoEm,
+        })
+        await tx.insert(eventos).values({
+          lancamentoId,
+          tipo: 'criado',
+          usuarioId: usuario.id,
+          dados: { origem: 'gasto_fixo' },
+        })
+        criados.push(lancamentoId)
+      }
+
+      return { criados, jaLancados: lancados.size }
+    })
+  }
+
   /**
    * A faixa de indicadores do topo da lista. Tudo sobre lançamentos ativos: o
    * cancelado não é gasto.
    */
-  async indicadores(usuario: UsuarioSessao, setorId?: number): Promise<Indicadores> {
+  async indicadores(usuario: UsuarioSessao, setorId?: number, mes?: string): Promise<Indicadores> {
     const dia = hoje()
-    const inicioMes = inicioDoMes(dia)
-    const mesmoDiaAnterior = somarMeses(dia, -1)
-    const inicioAnterior = inicioDoMes(mesmoDiaAnterior)
-    const inicioSerie = inicioDoMes(somarMeses(dia, -11))
+    const mesCorrente = dia.slice(0, 7)
+    const referencia = mes ?? mesCorrente
+    // No mês corrente, do dia 1 até hoje contra o mesmo trecho do anterior;
+    // num mês que já terminou (ou futuro), o mês inteiro contra o anterior inteiro.
+    const corrente = referencia === mesCorrente
+    const inicioMes = `${referencia}-01`
+    const fimMes = corrente ? dia : fimDoMes(inicioMes)
+    const inicioAnterior = `${somarMesesAoMes(referencia, -1)}-01`
+    const fimAnterior = corrente ? somarMeses(dia, -1) : fimDoMes(inicioAnterior)
+    // O ano vai de 1º de janeiro até o mesmo corte do mês, contra o mesmo trecho do ano anterior.
+    const inicioAno = `${referencia.slice(0, 4)}-01-01`
+    const inicioAnoAnterior = `${Number(referencia.slice(0, 4)) - 1}-01-01`
+    const fimAnoAnterior = corrente
+      ? somarMeses(dia, -12)
+      : fimDoMes(`${somarMesesAoMes(referencia, -12)}-01`)
+    const janela = janelaDe12Meses(referencia, mesCorrente)
     const daquiA7 = somarDias(dia, 7)
-    const ativos = and(eq(lancamentos.situacao, 'ativo'), this.escopoSetor(usuario, setorId))
-    const mes = sql<string>`to_char(${lancamentos.dataGasto}, 'YYYY-MM')`
+    const ativos = and(
+      eq(lancamentos.situacao, 'ativo'),
+      escopoDeSetor(usuario, lancamentos.setorId, setorId),
+    )
+    const mesDoGasto = sql<string>`to_char(${lancamentos.dataGasto}, 'YYYY-MM')`
 
     const [gasto, serie, abertas] = await Promise.all([
       this.db
         .select({
-          atual: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioMes}::date and ${dia}::date), 0)::bigint`,
-          anterior: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioAnterior}::date and ${mesmoDiaAnterior}::date), 0)::bigint`,
-          lancamentos: sql<number>`(count(*) filter (where ${lancamentos.dataGasto} between ${inicioMes}::date and ${dia}::date))::int`,
+          atual: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioMes}::date and ${fimMes}::date), 0)::bigint`,
+          anterior: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioAnterior}::date and ${fimAnterior}::date), 0)::bigint`,
+          lancamentos: sql<number>`(count(*) filter (where ${lancamentos.dataGasto} between ${inicioMes}::date and ${fimMes}::date))::int`,
+          ano: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioAno}::date and ${fimMes}::date), 0)::bigint`,
+          anoAnterior: sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${lancamentos.dataGasto} between ${inicioAnoAnterior}::date and ${fimAnoAnterior}::date), 0)::bigint`,
         })
         .from(lancamentos)
-        .where(ativos),
+        .where(and(ativos, between(lancamentos.dataGasto, inicioAnoAnterior, fimMes))),
       this.db
-        .select({ mes, centavos: sql<string>`sum(${lancamentos.valorCentavos})::bigint` })
+        .select({
+          mes: mesDoGasto,
+          centavos: sql<string>`sum(${lancamentos.valorCentavos})::bigint`,
+        })
         .from(lancamentos)
-        .where(and(ativos, between(lancamentos.dataGasto, inicioSerie, fimDoMes(dia))))
-        .groupBy(mes),
+        .where(
+          and(
+            ativos,
+            between(lancamentos.dataGasto, `${janela.inicio}-01`, fimDoMes(`${janela.fim}-01`)),
+          ),
+        )
+        .groupBy(mesDoGasto),
       this.db
         .select({
           emAberto: sql<string>`coalesce(sum(${parcelas.valorCentavos}), 0)::bigint`,
@@ -596,13 +779,18 @@ export class LancamentosService {
 
     return {
       hoje: dia,
+      mes: referencia,
       gastoMes: {
         centavos: Number(g?.atual ?? 0),
         anteriorCentavos: Number(g?.anterior ?? 0),
         lancamentos: Number(g?.lancamentos ?? 0),
       },
+      gastoAno: {
+        centavos: Number(g?.ano ?? 0),
+        anteriorCentavos: Number(g?.anoAnterior ?? 0),
+      },
       serieMensal: Array.from({ length: 12 }, (_, i) => {
-        const chave = somarMeses(inicioSerie, i).slice(0, 7)
+        const chave = somarMesesAoMes(janela.inicio, i)
         return { mes: chave, centavos: porMes.get(chave) ?? 0 }
       }),
       emAberto: { centavos: Number(a?.emAberto ?? 0), parcelas: Number(a?.parcelasEmAberto ?? 0) },
@@ -614,23 +802,14 @@ export class LancamentosService {
     }
   }
 
-  /** Restringe aos setores que a pessoa enxerga; com setor escolhido, só a ele (se ela enxergar). */
-  private escopoSetor(usuario: UsuarioSessao, setorId?: number): SQL | undefined {
-    const visiveis = setoresVisiveis(usuario)
-    if (setorId !== undefined) {
-      if (visiveis !== null && !visiveis.includes(setorId)) return sql`false`
-      return eq(lancamentos.setorId, setorId)
-    }
-    if (visiveis === null) return undefined
-    return visiveis.length ? inArray(lancamentos.setorId, visiveis) : sql`false`
-  }
-
   private condicoes(
     usuario: UsuarioSessao,
     f: FiltrosLancamentos,
     resumo: Resumo,
   ): SQL | undefined {
-    const condicoes: Array<SQL | undefined> = [this.escopoSetor(usuario, f.setorId)]
+    const condicoes: Array<SQL | undefined> = [
+      escopoDeSetor(usuario, lancamentos.setorId, f.setorId),
+    ]
 
     if (f.de) condicoes.push(gte(lancamentos.dataGasto, f.de))
     if (f.ate) condicoes.push(lte(lancamentos.dataGasto, f.ate))
@@ -639,6 +818,7 @@ export class LancamentosService {
     if (f.empreendimentoId) condicoes.push(eq(lancamentos.empreendimentoId, f.empreendimentoId))
     if (f.fornecedorId) condicoes.push(eq(lancamentos.fornecedorId, f.fornecedorId))
     if (f.campanhaId) condicoes.push(eq(lancamentos.campanhaId, f.campanhaId))
+    if (f.cartaoId) condicoes.push(eq(lancamentos.cartaoId, f.cartaoId))
     if (f.situacao !== 'todos') condicoes.push(eq(lancamentos.situacao, f.situacao))
 
     if (f.pagamento === 'pago') condicoes.push(sql`${resumo.pagas} = ${resumo.quantidade}`)
@@ -662,36 +842,62 @@ export class LancamentosService {
   }
 
   /**
-   * Confere o que o esquema sozinho não sabe: se os cadastros existem, estão
-   * ativos e pertencem ao setor. Item desativado só é recusado quando é uma
+   * Confere o que o esquema sozinho não sabe: se os cadastros escolhidos
+   * existem, estão ativos e pertencem ao setor. Cadastro em branco não tem o
+   * que conferir (é opcional). Item desativado só é recusado quando é uma
    * escolha nova — lançamento antigo que já apontava para ele continua editável.
    */
   private async validarEntrada(entrada: LancamentoInput, atual?: Atual): Promise<void> {
-    const [setor, categoria, forma, empreendimento, fornecedor, campanha] = await Promise.all([
-      this.db.select({ ativo: setores.ativo }).from(setores).where(eq(setores.id, entrada.setorId)),
-      this.db
-        .select({ ativo: categorias.ativo, setorId: categorias.setorId })
-        .from(categorias)
-        .where(eq(categorias.id, entrada.categoriaId)),
-      this.db
-        .select({ ativo: formasPagamento.ativo })
-        .from(formasPagamento)
-        .where(eq(formasPagamento.id, entrada.formaPagamentoId)),
-      this.db
-        .select({ ativo: empreendimentos.ativo })
-        .from(empreendimentos)
-        .where(eq(empreendimentos.id, entrada.empreendimentoId)),
-      this.db
-        .select({ ativo: fornecedores.ativo })
-        .from(fornecedores)
-        .where(eq(fornecedores.id, entrada.fornecedorId)),
-      entrada.campanhaId === null
-        ? Promise.resolve([])
-        : this.db
+    const buscar = <T>(escolhido: number | null, consulta: (id: number) => Promise<T[]>) =>
+      escolhido === null ? Promise.resolve<T[]>([]) : consulta(escolhido)
+
+    const [setor, categoria, forma, empreendimento, fornecedor, campanha, cartao] =
+      await Promise.all([
+        this.db
+          .select({ ativo: setores.ativo })
+          .from(setores)
+          .where(eq(setores.id, entrada.setorId)),
+        buscar(entrada.categoriaId, (id) =>
+          this.db
+            .select({ ativo: categorias.ativo, setorId: categorias.setorId })
+            .from(categorias)
+            .where(eq(categorias.id, id)),
+        ),
+        buscar(entrada.formaPagamentoId, (id) =>
+          this.db
+            .select({ ativo: formasPagamento.ativo, cartao: formasPagamento.cartao })
+            .from(formasPagamento)
+            .where(eq(formasPagamento.id, id)),
+        ),
+        buscar(entrada.empreendimentoId, (id) =>
+          this.db
+            .select({ ativo: empreendimentos.ativo })
+            .from(empreendimentos)
+            .where(eq(empreendimentos.id, id)),
+        ),
+        buscar(entrada.fornecedorId, (id) =>
+          this.db
+            .select({ ativo: fornecedores.ativo })
+            .from(fornecedores)
+            .where(eq(fornecedores.id, id)),
+        ),
+        buscar(entrada.campanhaId, (id) =>
+          this.db
             .select({ ativo: campanhas.ativo, setorId: campanhas.setorId })
             .from(campanhas)
-            .where(eq(campanhas.id, entrada.campanhaId)),
-    ])
+            .where(eq(campanhas.id, id)),
+        ),
+        buscar(entrada.cartaoId, (id) =>
+          this.db
+            .select({
+              ativo: cartoes.ativo,
+              setorId: cartoes.setorId,
+              formaPagamentoId: cartoes.formaPagamentoId,
+            })
+            .from(cartoes)
+            .where(eq(cartoes.id, id)),
+        ),
+      ])
 
     const problemas: ErroValidacao['issues'] = []
     const conferir = (
@@ -699,6 +905,7 @@ export class LancamentosService {
       item: { ativo: boolean; setorId?: number } | undefined,
       nome: string,
     ) => {
+      if (entrada[path] === null) return
       const novaEscolha = !atual || atual[path as keyof Atual] !== entrada[path]
       if (!item) problemas.push({ path, message: `${nome} não encontrado(a)` })
       else if (item.setorId !== undefined && item.setorId !== entrada.setorId) {
@@ -713,7 +920,26 @@ export class LancamentosService {
     conferir('formaPagamentoId', forma[0], 'Forma de pagamento')
     conferir('empreendimentoId', empreendimento[0], 'Empreendimento')
     conferir('fornecedorId', fornecedor[0], 'Fornecedor')
-    if (entrada.campanhaId !== null) conferir('campanhaId', campanha[0], 'Campanha')
+    conferir('campanhaId', campanha[0], 'Campanha')
+
+    // Cartão (opcional): quando informado, precisa de uma forma de cartão, do
+    // mesmo setor e da mesma forma. Sem cartão, o gasto só não entra no
+    // orçamento de nenhum cartão.
+    if (entrada.cartaoId !== null) {
+      if (entrada.formaPagamentoId === null) {
+        problemas.push({
+          path: 'formaPagamentoId',
+          message: 'Escolha a forma de pagamento do cartão',
+        })
+      } else if (forma[0] && !forma[0].cartao) {
+        problemas.push({ path: 'cartaoId', message: 'Esta forma de pagamento não usa cartão' })
+      } else {
+        conferir('cartaoId', cartao[0], 'Cartão')
+        if (cartao[0] && cartao[0].formaPagamentoId !== entrada.formaPagamentoId) {
+          problemas.push({ path: 'cartaoId', message: 'Este cartão é de outra forma de pagamento' })
+        }
+      }
+    }
 
     const dia = hoje()
     entrada.parcelas.forEach((p, i) => {
@@ -730,8 +956,9 @@ export class LancamentosService {
 
   /**
    * Mesmo fornecedor e mesmo código de identificação, ou mesmo fornecedor e
-   * mesmo valor com até 7 dias de diferença. Recorrência mensal (a mesma
-   * assinatura todo mês) fica de fora do aviso de propósito.
+   * mesmo valor com até 7 dias de diferença. Sem fornecedor, compara com os
+   * outros lançamentos sem fornecedor. Recorrência mensal (a mesma assinatura
+   * todo mês) fica de fora do aviso de propósito.
    */
   private possiveisDuplicados(entrada: LancamentoInput): Promise<PossivelDuplicado[]> {
     const mesmoCodigo = entrada.codigoIdentificacao
@@ -757,7 +984,9 @@ export class LancamentosService {
       .from(lancamentos)
       .where(
         and(
-          eq(lancamentos.fornecedorId, entrada.fornecedorId),
+          entrada.fornecedorId === null
+            ? isNull(lancamentos.fornecedorId)
+            : eq(lancamentos.fornecedorId, entrada.fornecedorId),
           eq(lancamentos.situacao, 'ativo'),
           or(mesmoCodigo, mesmoValorPerto),
         ),
@@ -779,6 +1008,7 @@ export class LancamentosService {
         empreendimentoId: lancamentos.empreendimentoId,
         fornecedorId: lancamentos.fornecedorId,
         campanhaId: lancamentos.campanhaId,
+        cartaoId: lancamentos.cartaoId,
         codigoIdentificacao: lancamentos.codigoIdentificacao,
         observacao: lancamentos.observacao,
         situacao: lancamentos.situacao,

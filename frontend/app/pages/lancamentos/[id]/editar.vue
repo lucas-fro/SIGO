@@ -21,7 +21,7 @@ const { data: lancamento, isPending, isError, error } = useLancamento(id)
 
 function aoSalvar(detalhe: LancamentoDetalhe) {
   toast.sucesso(`Alterações do lançamento #${detalhe.id} salvas`)
-  void router.push({ path: '/lancamentos', query: { id: detalhe.id } })
+  void router.push({ path: '/historico', query: { id: detalhe.id } })
 }
 </script>
 
@@ -32,7 +32,7 @@ function aoSalvar(detalhe: LancamentoDetalhe) {
       subtitulo="Toda alteração fica no histórico, com o valor de antes e o de depois."
     >
       <template #migalha>
-        <NuxtLink to="/lancamentos" class="hover:text-ink">Lançamentos</NuxtLink>
+        <NuxtLink to="/historico" class="hover:text-ink">Histórico</NuxtLink>
         <ChevronRight :size="13" />
         <NuxtLink :to="`/lancamentos/${id}`" class="hover:text-ink">#{{ id }}</NuxtLink>
         <ChevronRight :size="13" />

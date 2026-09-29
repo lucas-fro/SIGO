@@ -27,12 +27,14 @@ import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
 import {
   campanhas,
+  cartoes,
   categorias,
   empreendimentos,
   formasPagamento,
   fornecedores,
   setores,
 } from '../db/schema.js'
+import { listarCartoes } from './cartoes.service.js'
 
 type ItemDeLista = Categoria | FormaPagamento | Empreendimento | Campanha
 
@@ -52,66 +54,74 @@ export class CadastrosService {
   async listar(usuario: UsuarioSessao): Promise<Cadastros> {
     const visiveis = setoresVisiveis(usuario)
     const doSetor = (
-      coluna: typeof categorias.setorId | typeof campanhas.setorId,
+      coluna: typeof categorias.setorId | typeof campanhas.setorId | typeof cartoes.setorId,
     ): SQL | undefined =>
       visiveis === null ? undefined : inArray(coluna, visiveis.length ? visiveis : [-1])
 
-    const [listaSetores, listaCategorias, listaFormas, listaEmpreendimentos, listaCampanhas] =
-      await Promise.all([
-        this.db
-          .select({ id: setores.id, nome: setores.nome, slug: setores.slug, ativo: setores.ativo })
-          .from(setores)
-          .where(
-            visiveis === null ? undefined : inArray(setores.id, visiveis.length ? visiveis : [-1]),
-          )
-          .orderBy(asc(setores.nome)),
-        this.db
-          .select({
-            id: categorias.id,
-            setorId: categorias.setorId,
-            nome: categorias.nome,
-            descricao: categorias.descricao,
-            ativo: categorias.ativo,
-            ordem: categorias.ordem,
-          })
-          .from(categorias)
-          .where(doSetor(categorias.setorId))
-          .orderBy(asc(categorias.ordem), asc(categorias.nome)),
-        this.db
-          .select({
-            id: formasPagamento.id,
-            nome: formasPagamento.nome,
-            ativo: formasPagamento.ativo,
-            ordem: formasPagamento.ordem,
-          })
-          .from(formasPagamento)
-          .orderBy(asc(formasPagamento.ordem), asc(formasPagamento.nome)),
-        this.db
-          .select({
-            id: empreendimentos.id,
-            nome: empreendimentos.nome,
-            institucional: empreendimentos.institucional,
-            ativo: empreendimentos.ativo,
-            ordem: empreendimentos.ordem,
-          })
-          .from(empreendimentos)
-          // "Institucional" primeiro: é a escolha de quem não sabe de qual empreendimento é o gasto.
-          .orderBy(
-            desc(empreendimentos.institucional),
-            asc(empreendimentos.ordem),
-            asc(empreendimentos.nome),
-          ),
-        this.db
-          .select({
-            id: campanhas.id,
-            setorId: campanhas.setorId,
-            nome: campanhas.nome,
-            ativo: campanhas.ativo,
-          })
-          .from(campanhas)
-          .where(doSetor(campanhas.setorId))
-          .orderBy(asc(campanhas.nome)),
-      ])
+    const [
+      listaSetores,
+      listaCategorias,
+      listaFormas,
+      listaEmpreendimentos,
+      listaCampanhas,
+      listaCartoes,
+    ] = await Promise.all([
+      this.db
+        .select({ id: setores.id, nome: setores.nome, slug: setores.slug, ativo: setores.ativo })
+        .from(setores)
+        .where(
+          visiveis === null ? undefined : inArray(setores.id, visiveis.length ? visiveis : [-1]),
+        )
+        .orderBy(asc(setores.nome)),
+      this.db
+        .select({
+          id: categorias.id,
+          setorId: categorias.setorId,
+          nome: categorias.nome,
+          descricao: categorias.descricao,
+          ativo: categorias.ativo,
+          ordem: categorias.ordem,
+        })
+        .from(categorias)
+        .where(doSetor(categorias.setorId))
+        .orderBy(asc(categorias.ordem), asc(categorias.nome)),
+      this.db
+        .select({
+          id: formasPagamento.id,
+          nome: formasPagamento.nome,
+          cartao: formasPagamento.cartao,
+          ativo: formasPagamento.ativo,
+          ordem: formasPagamento.ordem,
+        })
+        .from(formasPagamento)
+        .orderBy(asc(formasPagamento.ordem), asc(formasPagamento.nome)),
+      this.db
+        .select({
+          id: empreendimentos.id,
+          nome: empreendimentos.nome,
+          institucional: empreendimentos.institucional,
+          ativo: empreendimentos.ativo,
+          ordem: empreendimentos.ordem,
+        })
+        .from(empreendimentos)
+        // "Institucional" primeiro: é a escolha de quem não sabe de qual empreendimento é o gasto.
+        .orderBy(
+          desc(empreendimentos.institucional),
+          asc(empreendimentos.ordem),
+          asc(empreendimentos.nome),
+        ),
+      this.db
+        .select({
+          id: campanhas.id,
+          setorId: campanhas.setorId,
+          nome: campanhas.nome,
+          ativo: campanhas.ativo,
+        })
+        .from(campanhas)
+        .where(doSetor(campanhas.setorId))
+        .orderBy(asc(campanhas.nome)),
+      listarCartoes(this.db, doSetor(cartoes.setorId)),
+    ])
 
     return {
       setores: listaSetores,
@@ -119,6 +129,7 @@ export class CadastrosService {
       formasPagamento: listaFormas,
       empreendimentos: listaEmpreendimentos,
       campanhas: listaCampanhas,
+      cartoes: listaCartoes,
     }
   }
 
@@ -152,7 +163,7 @@ export class CadastrosService {
           exigirAdmin(usuario)
           const [novo] = await this.db
             .insert(formasPagamento)
-            .values({ nome: item.nome, ordem: 999 })
+            .values({ nome: item.nome, cartao: item.cartao ?? false, ordem: 999 })
             .returning()
           return this.semCriadoEm(novo!)
         }
@@ -210,7 +221,11 @@ export class CadastrosService {
         }
         case 'formas-pagamento': {
           exigirAdmin(usuario)
-          const campos = { ...comuns, ...ordem }
+          const campos = {
+            ...comuns,
+            ...ordem,
+            ...(mudancas.cartao !== undefined && { cartao: mudancas.cartao }),
+          }
           const [item] = Object.keys(campos).length
             ? await this.db
                 .update(formasPagamento)

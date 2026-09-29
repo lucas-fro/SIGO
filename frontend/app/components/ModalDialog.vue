@@ -1,3 +1,11 @@
+<script lang="ts">
+/**
+ * Modais abertos, do mais antigo ao mais novo. Com modal sobre modal
+ * (cadastrar fornecedor de dentro do gasto fixo), o Esc fecha só o de cima.
+ */
+const pilha: symbol[] = []
+</script>
+
 <script setup lang="ts">
 /*
   Modal centralizado para decisões curtas (cancelar com motivo, registrar
@@ -12,20 +20,29 @@ const props = withDefaults(
 const emit = defineEmits<{ fechar: [] }>()
 
 const caixa = ref<HTMLElement | null>(null)
+const eu = Symbol('modal')
 let focoAnterior: HTMLElement | null = null
 let overflowAnterior: string | null = null
 
 function tecla(evento: KeyboardEvent) {
-  if (evento.key !== 'Escape') return
+  if (evento.key !== 'Escape' || pilha[pilha.length - 1] !== eu) return
+  // Lista aberta dentro do modal (a busca de fornecedor) fecha primeiro, sozinha.
+  if ((evento.target as HTMLElement | null)?.closest?.('[data-lista-aberta]')) return
   evento.preventDefault()
   evento.stopPropagation()
   emit('fechar')
+}
+
+function sairDaPilha() {
+  const i = pilha.indexOf(eu)
+  if (i >= 0) pilha.splice(i, 1)
 }
 
 watch(
   () => props.open,
   async (aberto) => {
     if (aberto) {
+      pilha.push(eu)
       focoAnterior = document.activeElement as HTMLElement | null
       overflowAnterior = document.body.style.overflow
       document.body.style.overflow = 'hidden'
@@ -36,6 +53,7 @@ watch(
       )
       ;(alvo ?? caixa.value)?.focus()
     } else {
+      sairDaPilha()
       document.removeEventListener('keydown', tecla, true)
       if (overflowAnterior !== null) document.body.style.overflow = overflowAnterior
       overflowAnterior = null
@@ -47,6 +65,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  sairDaPilha()
   document.removeEventListener('keydown', tecla, true)
   if (overflowAnterior !== null) document.body.style.overflow = overflowAnterior
 })

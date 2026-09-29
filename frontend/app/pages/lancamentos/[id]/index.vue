@@ -18,7 +18,7 @@ const { data: lancamento, isPending, isError, error } = useLancamento(id)
   <div>
     <PageHeader :titulo="`Lançamento #${id ?? ''}`">
       <template #migalha>
-        <NuxtLink to="/lancamentos" class="hover:text-ink">Lançamentos</NuxtLink>
+        <NuxtLink to="/historico" class="hover:text-ink">Histórico</NuxtLink>
         <ChevronRight :size="13" />
         <span class="text-muted">#{{ id }}</span>
       </template>
@@ -33,7 +33,7 @@ const { data: lancamento, isPending, isError, error } = useLancamento(id)
           titulo="Lançamento não encontrado"
           :texto="error?.message ?? 'Confira o número no endereço.'"
         >
-          <NuxtLink to="/lancamentos" class="btn btn-secondary">Voltar para a lista</NuxtLink>
+          <NuxtLink to="/historico" class="btn btn-secondary">Voltar para o histórico</NuxtLink>
         </EmptyState>
         <div v-else-if="isPending" class="flex flex-col gap-3 p-5">
           <div class="skeleton h-5 w-24" />

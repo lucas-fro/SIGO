@@ -155,7 +155,9 @@ async function cancelar() {
 function frase(e: Evento): string {
   switch (e.tipo) {
     case 'criado':
-      return 'registrou o lançamento'
+      return e.dados?.origem === 'gasto_fixo'
+        ? 'lançou este gasto fixo do cartão'
+        : 'registrou o lançamento'
     case 'editado':
       return 'editou o lançamento'
     case 'cancelado':
@@ -196,7 +198,7 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
       >
         {{ l.descricao }}
       </h3>
-      <p class="mt-0.5 text-[13px] text-muted">
+      <p v-if="l.fornecedor" class="mt-0.5 text-[13px] text-muted">
         {{ l.fornecedor.nome }}
         <span v-if="l.fornecedor.documento" class="tnum text-faint">
           · {{ formatarDocumento(l.fornecedor.documento) }}
@@ -277,19 +279,23 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
       </div>
       <div>
         <dt class="eyebrow">Forma de pagamento</dt>
-        <dd class="mt-1 text-ink">{{ l.formaPagamento.nome }}</dd>
+        <dd class="mt-1 text-ink">
+          {{ l.formaPagamento?.nome ?? '—' }}
+          <span v-if="l.cartao" class="block text-[12px] text-faint">{{ l.cartao.nome }}</span>
+        </dd>
       </div>
       <div>
         <dt class="eyebrow">Categoria</dt>
-        <dd class="mt-1 text-ink">{{ l.categoria.nome }}</dd>
+        <dd class="mt-1 text-ink">{{ l.categoria?.nome ?? '—' }}</dd>
       </div>
       <div>
         <dt class="eyebrow">Empreendimento</dt>
-        <dd class="mt-1 text-ink">{{ l.empreendimento.nome }}</dd>
+        <dd class="mt-1 text-ink">{{ l.empreendimento?.nome ?? '—' }}</dd>
       </div>
-      <div>
+      <!-- Campanha é detalhe secundário: só aparece quando foi informada. -->
+      <div v-if="l.campanha">
         <dt class="eyebrow">Campanha</dt>
-        <dd class="mt-1 text-ink">{{ l.campanha?.nome ?? '—' }}</dd>
+        <dd class="mt-1 text-ink">{{ l.campanha.nome }}</dd>
       </div>
       <div>
         <dt class="eyebrow">Código de identificação</dt>

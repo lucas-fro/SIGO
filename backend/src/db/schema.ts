@@ -98,6 +98,8 @@ export const formasPagamento = pgTable(
   {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
     nome: text('nome').notNull(),
+    /** Forma que é cartão: o lançamento pede qual cartão, e a fatura dele define o vencimento. */
+    cartao: boolean('cartao').notNull().default(false),
     ativo: boolean('ativo').notNull().default(true),
     ordem: integer('ordem').notNull().default(0),
     criadoEm: criadoEm(),
@@ -147,6 +149,76 @@ export const fornecedores = pgTable('fornecedores', {
   criadoEm: criadoEm(),
 })
 
+/**
+ * Cartão do setor (o do Marketing, o pré-pago do plantão...), com o orçamento
+ * do mês. Fechamento e vencimento da fatura, quando informados, definem o
+ * vencimento de cada compra lançada nele.
+ */
+export const cartoes = pgTable(
+  'cartoes',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    setorId: integer('setor_id')
+      .notNull()
+      .references(() => setores.id),
+    nome: text('nome').notNull(),
+    /** Últimos 4 dígitos, para reconhecer o cartão na fatura. */
+    final: text('final'),
+    /** A forma de pagamento que este cartão é (crédito, pré-pago). */
+    formaPagamentoId: integer('forma_pagamento_id')
+      .notNull()
+      .references(() => formasPagamento.id),
+    orcamentoMensalCentavos: centavos('orcamento_mensal_centavos').notNull().default(0),
+    diaFechamento: integer('dia_fechamento'),
+    diaVencimento: integer('dia_vencimento'),
+    ativo: boolean('ativo').notNull().default(true),
+    criadoEm: criadoEm(),
+  },
+  (t) => [
+    uniqueIndex('cartoes_setor_nome_idx').on(t.setorId, sql`lower(${t.nome})`),
+    check('cartoes_orcamento_check', sql`${t.orcamentoMensalCentavos} >= 0`),
+    check(
+      'cartoes_dias_check',
+      sql`(${t.diaFechamento} is null or ${t.diaFechamento} between 1 and 31) and (${t.diaVencimento} is null or ${t.diaVencimento} between 1 and 31)`,
+    ),
+  ],
+)
+
+/**
+ * Gasto que se repete todo mês no cartão (assinatura, ferramenta, hospedagem).
+ * Conta como comprometido no orçamento do cartão e vira lançamento pelo botão
+ * "lançar gastos fixos do mês", uma vez por mês.
+ */
+export const gastosFixos = pgTable(
+  'gastos_fixos',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    cartaoId: integer('cartao_id')
+      .notNull()
+      .references(() => cartoes.id),
+    descricao: text('descricao').notNull(),
+    valorCentavos: centavos('valor_centavos').notNull(),
+    /** Dia do mês em que a cobrança cai no cartão. */
+    diaCobranca: integer('dia_cobranca').notNull().default(1),
+    fornecedorId: integer('fornecedor_id')
+      .notNull()
+      .references(() => fornecedores.id),
+    categoriaId: integer('categoria_id')
+      .notNull()
+      .references(() => categorias.id),
+    empreendimentoId: integer('empreendimento_id')
+      .notNull()
+      .references(() => empreendimentos.id),
+    ativo: boolean('ativo').notNull().default(true),
+    criadoEm: criadoEm(),
+  },
+  (t) => [
+    check('gastos_fixos_valor_positivo', sql`${t.valorCentavos} > 0`),
+    check('gastos_fixos_dia_check', sql`${t.diaCobranca} between 1 and 31`),
+    index('gastos_fixos_cartao_idx').on(t.cartaoId),
+  ],
+)
+
 export const lancamentos = pgTable(
   'lancamentos',
   {
@@ -157,21 +229,18 @@ export const lancamentos = pgTable(
     descricao: text('descricao').notNull(),
     /** Valor total. A soma das parcelas fecha com ele (conferido na API). */
     valorCentavos: centavos('valor_centavos').notNull(),
-    /** Quando a despesa aconteceu: é a data que decide o mês nos totais. */
+    /** Quando a despesa aconteceu: é a data que decide o mês nos totais (sem data, vale o dia do registro). */
     dataGasto: dia('data_gasto').notNull(),
-    categoriaId: integer('categoria_id')
-      .notNull()
-      .references(() => categorias.id),
-    formaPagamentoId: integer('forma_pagamento_id')
-      .notNull()
-      .references(() => formasPagamento.id),
-    empreendimentoId: integer('empreendimento_id')
-      .notNull()
-      .references(() => empreendimentos.id),
-    fornecedorId: integer('fornecedor_id')
-      .notNull()
-      .references(() => fornecedores.id),
+    // Classificação e pagamento são opcionais: só descrição e valor são obrigatórios.
+    categoriaId: integer('categoria_id').references(() => categorias.id),
+    formaPagamentoId: integer('forma_pagamento_id').references(() => formasPagamento.id),
+    empreendimentoId: integer('empreendimento_id').references(() => empreendimentos.id),
+    fornecedorId: integer('fornecedor_id').references(() => fornecedores.id),
     campanhaId: integer('campanha_id').references(() => campanhas.id),
+    /** Qual cartão, quando a forma de pagamento é cartão. */
+    cartaoId: integer('cartao_id').references(() => cartoes.id),
+    /** Gasto fixo que originou este lançamento (lançado pelo botão do cartão). */
+    gastoFixoId: integer('gasto_fixo_id').references(() => gastosFixos.id),
     /** Nº da nota, do boleto, do pedido ou da transação do cartão. */
     codigoIdentificacao: text('codigo_identificacao'),
     observacao: text('observacao'),
@@ -198,6 +267,8 @@ export const lancamentos = pgTable(
     index('lancamentos_categoria_idx').on(t.categoriaId),
     index('lancamentos_empreendimento_idx').on(t.empreendimentoId),
     index('lancamentos_fornecedor_idx').on(t.fornecedorId),
+    index('lancamentos_cartao_data_idx').on(t.cartaoId, t.dataGasto),
+    index('lancamentos_gasto_fixo_idx').on(t.gastoFixoId),
   ],
 )
 

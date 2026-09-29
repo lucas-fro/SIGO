@@ -17,8 +17,10 @@ import type { UsuarioSessao } from '../contracts/auth.js'
 import {
   cancelarLancamentoSchema,
   criarLancamentoSchema,
+  fixosLancadosSchema,
   indicadoresSchema,
   lancamentoSchema,
+  lancarFixosSchema,
   listarLancamentosSchema,
   pagamentoParcelaSchema,
 } from '../contracts/lancamentos.js'
@@ -30,6 +32,8 @@ class CriarDto extends zodDto(criarLancamentoSchema) {}
 class EditarDto extends zodDto(lancamentoSchema) {}
 class CancelarDto extends zodDto(cancelarLancamentoSchema) {}
 class PagamentoDto extends zodDto(pagamentoParcelaSchema) {}
+class LancarFixosDto extends zodDto(lancarFixosSchema) {}
+class FixosLancadosDto extends zodDto(fixosLancadosSchema) {}
 
 @Controller('lancamentos')
 export class LancamentosController {
@@ -42,8 +46,13 @@ export class LancamentosController {
 
   // Antes de ':id', senão "indicadores" seria lido como número de lançamento.
   @Get('indicadores')
-  indicadores(@Query() { setorId }: IndicadoresDto, @UsuarioAtual() usuario: UsuarioSessao) {
-    return this.lancamentos.indicadores(usuario, setorId)
+  indicadores(@Query() { setorId, mes }: IndicadoresDto, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.lancamentos.indicadores(usuario, setorId, mes)
+  }
+
+  @Get('fixos-lancados')
+  fixosLancados(@Query() filtros: FixosLancadosDto, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.lancamentos.fixosLancados(usuario, filtros)
   }
 
   @Get(':id')
@@ -55,6 +64,13 @@ export class LancamentosController {
   @Papeis('admin', 'editor')
   criar(@Body() entrada: CriarDto, @UsuarioAtual() usuario: UsuarioSessao) {
     return this.lancamentos.criar(usuario, entrada)
+  }
+
+  /** Lança os gastos fixos de um cartão no mês. Rota literal: não conflita com ':id/...'. */
+  @Post('lancar-fixos')
+  @Papeis('admin', 'editor')
+  lancarFixos(@Body() entrada: LancarFixosDto, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.lancamentos.lancarFixos(usuario, entrada)
   }
 
   @Put(':id')

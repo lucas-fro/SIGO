@@ -6,9 +6,10 @@ import { ZodValidationPipe } from './common/validacao.js'
 import { DatabaseModule } from './db/database.module.js'
 import { HealthController } from './health.controller.js'
 import { LancamentosModule } from './lancamentos/lancamentos.module.js'
+import { PainelModule } from './painel/painel.module.js'
 
 @Module({
-  imports: [DatabaseModule, AuthModule, CadastrosModule, LancamentosModule],
+  imports: [DatabaseModule, AuthModule, CadastrosModule, LancamentosModule, PainelModule],
   controllers: [HealthController],
   // Todo corpo, query e parâmetro com DTO de contrato passa pelo zod antes de chegar à rota.
   providers: [{ provide: APP_PIPE, useClass: ZodValidationPipe }],

@@ -16,7 +16,7 @@ function aoSalvar(lancamento: LancamentoDetalhe) {
     to: '/lancamentos/novo',
   })
   // Volta para a lista com o lançamento novo aberto no painel.
-  void router.push({ path: '/lancamentos', query: { id: lancamento.id } })
+  void router.push({ path: '/historico', query: { id: lancamento.id } })
 }
 </script>
 
@@ -27,14 +27,14 @@ function aoSalvar(lancamento: LancamentoDetalhe) {
       subtitulo="Cartão, boleto, Pix ou reembolso: todo gasto entra pelo mesmo formulário."
     >
       <template #migalha>
-        <NuxtLink to="/lancamentos" class="hover:text-ink">Lançamentos</NuxtLink>
+        <NuxtLink to="/historico" class="hover:text-ink">Histórico</NuxtLink>
         <ChevronRight :size="13" />
         <span class="text-muted">Novo</span>
       </template>
     </PageHeader>
 
     <div class="px-5 pb-10 sm:px-6">
-      <LancamentoForm v-if="canEdit" @salvo="aoSalvar" @cancelar="router.push('/lancamentos')" />
+      <LancamentoForm v-if="canEdit" @salvo="aoSalvar" @cancelar="router.push('/historico')" />
       <EmptyState
         v-else
         :icone="Lock"

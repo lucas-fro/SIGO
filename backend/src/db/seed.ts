@@ -68,7 +68,14 @@ try {
     if (!formas?.total) {
       await tx
         .insert(formasPagamento)
-        .values(FORMAS_PAGAMENTO.map((nome, i) => ({ nome, ordem: i + 1 })))
+        // As formas de cartão pedem qual cartão no lançamento.
+        .values(
+          FORMAS_PAGAMENTO.map((nome, i) => ({
+            nome,
+            cartao: nome.startsWith('Cartão'),
+            ordem: i + 1,
+          })),
+        )
       console.log(`formas de pagamento: ${FORMAS_PAGAMENTO.length} criadas`)
     }
 
