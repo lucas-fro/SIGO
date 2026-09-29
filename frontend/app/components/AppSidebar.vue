@@ -7,7 +7,6 @@ import {
   LogOut,
   Moon,
   MoreHorizontal,
-  Search,
   Settings2,
   Sun,
   X,
@@ -19,7 +18,6 @@ const open = useNavOpen()
 const { user, canEdit, logout } = useAuth()
 const { theme, toggle } = useTheme()
 const route = useRoute()
-const router = useRouter()
 
 // O número de parcelas vencidas aparece ao lado de "Histórico": é o que pede ação.
 const { data: indicadores } = useIndicadores()
@@ -63,28 +61,6 @@ function ativo(to: string): boolean {
   return route.path === to || route.path.startsWith(`${to}/`)
 }
 
-// ---------- busca rápida ----------
-
-const busca = ref('')
-const campoBusca = ref<HTMLInputElement | null>(null)
-
-function buscar() {
-  const termo = busca.value.trim()
-  void router.push({ path: '/historico', query: termo ? { busca: termo } : {} })
-  busca.value = ''
-  campoBusca.value?.blur()
-}
-
-/** "/" em qualquer lugar (fora de campo de texto) leva à busca. */
-function atalho(evento: KeyboardEvent) {
-  if (evento.key !== '/' || evento.ctrlKey || evento.metaKey || evento.altKey) return
-  const alvo = evento.target as HTMLElement | null
-  if (alvo?.closest('input, textarea, select, [contenteditable="true"]')) return
-  evento.preventDefault()
-  if (window.innerWidth < 1024) open.value = true
-  campoBusca.value?.focus()
-}
-
 // ---------- menu da pessoa ----------
 
 const menuAberto = ref(false)
@@ -96,12 +72,8 @@ function cliqueFora(evento: PointerEvent) {
   }
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', atalho)
-  document.addEventListener('pointerdown', cliqueFora)
-})
+onMounted(() => document.addEventListener('pointerdown', cliqueFora))
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', atalho)
   document.removeEventListener('pointerdown', cliqueFora)
 })
 
@@ -129,11 +101,12 @@ watch(open, async (aberta) => {
         : 'max-lg:invisible max-lg:-translate-x-full max-lg:[transition:translate_200ms_ease-out,visibility_0s_linear_200ms]'
     "
   >
-    <div class="flex items-center gap-2.5 px-4 pt-4 pb-3">
-      <LogoMark :size="32" />
-      <div class="min-w-0 flex-1 leading-tight">
-        <div class="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">SIGO</div>
-        <div class="truncate text-[11.5px] text-faint">Gestão Orçamentária</div>
+    <div class="flex items-start gap-2 px-5 pt-5 pb-5">
+      <div class="min-w-0 flex-1">
+        <div class="text-[20px] leading-tight font-semibold tracking-[-0.03em] text-ink">SIGO</div>
+        <div class="mt-1 text-[11px] leading-[1.35] text-faint">
+          Sistema Integrado de Gestão Orçamentária
+        </div>
       </div>
       <button
         ref="botaoFechar"
@@ -146,38 +119,17 @@ watch(open, async (aberta) => {
       </button>
     </div>
 
-    <form class="px-3 pb-2" role="search" @submit.prevent="buscar">
-      <label class="relative block">
-        <span class="sr-only">Buscar lançamentos</span>
-        <Search
-          :size="15"
-          class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ghost"
-        />
-        <input
-          ref="campoBusca"
-          v-model="busca"
-          type="search"
-          placeholder="Buscar lançamento"
-          class="input input-sm pr-9 pl-9"
-          autocomplete="off"
-        />
-        <kbd class="kbd pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 max-lg:hidden"
-          >/</kbd
-        >
-      </label>
-    </form>
-
-    <nav class="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-3" aria-label="Principal">
+    <nav class="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-2" aria-label="Principal">
       <div v-for="grupo in grupos" :key="grupo.rotulo" class="flex flex-col gap-0.5">
         <div class="eyebrow px-2.5 pb-1.5">{{ grupo.rotulo }}</div>
         <NuxtLink
           v-for="item in grupo.itens"
           :key="item.to"
           :to="item.to"
-          class="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors"
+          class="flex h-9 items-center gap-2.5 border-l-2 border-transparent px-2.5 text-[13.5px] transition-colors"
           :class="
             ativo(item.to)
-              ? 'bg-surface font-medium text-ink shadow-card ring-1 ring-line'
+              ? 'border-accent bg-sunken font-medium text-ink'
               : 'text-muted hover:bg-sunken hover:text-ink'
           "
           :aria-current="ativo(item.to) ? 'page' : undefined"

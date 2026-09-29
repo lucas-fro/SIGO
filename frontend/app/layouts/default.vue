@@ -39,7 +39,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', tecla))
       />
     </Transition>
 
-    <div class="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2">
+    <div class="flex min-w-0 flex-1 flex-col">
       <header
         class="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 lg:hidden"
       >
@@ -53,14 +53,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', tecla))
         >
           <Menu :size="19" />
         </button>
-        <LogoMark :size="26" />
-        <span class="text-[14px] font-semibold text-ink">SIGO</span>
+        <span class="text-[16px] font-semibold tracking-[-0.02em] text-ink">SIGO</span>
       </header>
 
-      <!-- A área de trabalho é um cartão branco sobre o fundo cinza: a borda "encaixa" o conteúdo. -->
+      <!-- O conteúdo ocupa toda a altura e a largura disponível; a divisória marca a navegação. -->
       <main
         id="conteudo"
-        class="min-h-0 flex-1 overflow-y-auto bg-surface lg:rounded-xl lg:border lg:border-line lg:shadow-card"
+        class="min-h-0 flex-1 overflow-y-auto bg-surface lg:border-l lg:border-line"
       >
         <slot />
       </main>
