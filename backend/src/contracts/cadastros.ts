@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { id, textoAlteravel, textoOpcional, valorCentavos, type Ref } from './comum.js'
+import { data, id, textoAlteravel, textoOpcional, valorCentavos, type Ref } from './comum.js'
 import { documentoValido, normalizarDocumento } from './documento.js'
 
 /*
@@ -74,6 +74,26 @@ export interface GastoFixo {
   ativo: boolean
 }
 
+/**
+ * Como o dinheiro entra no cartão: orçamento fixo por mês, ou recargas de
+ * qualquer valor em qualquer dia (o cartão vive do saldo).
+ */
+export const TIPOS_RECARGA = ['mensal', 'avulsa'] as const
+export type TipoRecarga = (typeof TIPOS_RECARGA)[number]
+export const ROTULO_RECARGA: Record<TipoRecarga, string> = {
+  mensal: 'Orçamento mensal',
+  avulsa: 'Recarga avulsa',
+}
+
+/** Dinheiro que entrou num cartão de recarga avulsa. */
+export interface RecargaCartao {
+  id: number
+  cartaoId: number
+  data: string
+  valorCentavos: number
+  observacao: string | null
+}
+
 /** Cartão do setor, com o orçamento do mês e os gastos fixos que ele carrega. */
 export interface Cartao {
   id: number
@@ -82,11 +102,15 @@ export interface Cartao {
   /** Últimos 4 dígitos. */
   final: string | null
   formaPagamentoId: number
+  recarga: TipoRecarga
+  /** Só no cartão `mensal`; no `avulsa` é 0. */
   orcamentoMensalCentavos: number
   diaFechamento: number | null
   diaVencimento: number | null
   ativo: boolean
   gastosFixos: GastoFixo[]
+  /** Recargas do cartão `avulsa` (as removidas não vêm), da mais recente para a mais antiga. */
+  recargas: RecargaCartao[]
 }
 
 /** Tudo o que o formulário de lançamento precisa, numa chamada só. */
@@ -179,6 +203,7 @@ const camposCartao = z.object({
     .transform((v) => v || null)
     .refine((v) => v === null || /^\d{4}$/.test(v), { error: 'Use os 4 últimos dígitos' }),
   formaPagamentoId: id('Escolha a forma de pagamento do cartão'),
+  recarga: z.enum(TIPOS_RECARGA, { error: 'Escolha como o cartão recebe dinheiro' }),
   orcamentoMensalCentavos: z
     .number({ error: 'Informe o orçamento do mês' })
     .int({ error: 'Valor inválido' })
@@ -200,7 +225,9 @@ const regraDosDias = {
   path: ['diaVencimento'],
 }
 
-export const cartaoSchema = camposCartao.refine(diasJuntos, regraDosDias)
+export const cartaoSchema = camposCartao
+  .extend({ recarga: camposCartao.shape.recarga.default('mensal') })
+  .refine(diasJuntos, regraDosDias)
 export type NovoCartao = z.output<typeof cartaoSchema>
 
 /** Edição parcial. O setor não muda: os lançamentos do cartão são daquele setor. */
@@ -233,3 +260,11 @@ export const editarGastoFixoSchema = camposGastoFixo
   .partial()
   .extend({ ativo: z.boolean().optional() })
 export type EditarGastoFixo = z.output<typeof editarGastoFixoSchema>
+
+export const recargaSchema = z.object({
+  cartaoId: id('Escolha o cartão'),
+  data: data('Informe a data da recarga'),
+  valorCentavos: valorCentavos('Informe o valor da recarga'),
+  observacao: textoOpcional(200),
+})
+export type NovaRecarga = z.output<typeof recargaSchema>

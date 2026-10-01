@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { Loader2 } from 'lucide-vue-next'
-import { cartaoSchema, editarCartaoSchema, type Cartao } from '#contracts'
+import {
+  cartaoSchema,
+  editarCartaoSchema,
+  ROTULO_RECARGA,
+  TIPOS_RECARGA,
+  type Cartao,
+  type TipoRecarga,
+} from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 import { opcoesAtivas, useCadastros } from '~/composables/useCadastros'
 import { paraDia } from '~/composables/useFormat'
 import { useToast } from '~/composables/useToast'
 
-/** Cadastro e edição de cartão: nome, forma, orçamento do mês e dias da fatura. */
+/**
+ * Cadastro e edição de cartão: nome, forma, como o dinheiro entra (orçamento
+ * mensal ou recarga avulsa) e dias da fatura.
+ */
 const props = defineProps<{ open: boolean; cartao?: Cartao | null }>()
 const emit = defineEmits<{ fechar: [] }>()
 
@@ -31,10 +41,16 @@ const campos = reactive({
   nome: '',
   final: '',
   formaPagamentoId: null as number | null,
+  recarga: 'mensal' as TipoRecarga,
   orcamentoMensalCentavos: null as number | null,
   diaFechamento: '' as string | number,
   diaVencimento: '' as string | number,
 })
+const ajudaRecarga: Record<TipoRecarga, string> = {
+  mensal: 'Um valor fixo para gastar por mês.',
+  avulsa: 'Recebe recargas de qualquer valor, em qualquer dia; o cartão vive do saldo.',
+}
+
 const erros = ref<Record<string, string>>({})
 const erroGeral = ref<string | null>(null)
 const salvando = ref(false)
@@ -50,6 +66,7 @@ watch(
       final: c?.final ?? '',
       formaPagamentoId:
         c?.formaPagamentoId ?? (formas.value.length === 1 ? formas.value[0]!.id : null),
+      recarga: c?.recarga ?? 'mensal',
       orcamentoMensalCentavos: c?.orcamentoMensalCentavos ?? null,
       diaFechamento: c?.diaFechamento ? String(c.diaFechamento) : '',
       diaVencimento: c?.diaVencimento ? String(c.diaVencimento) : '',
@@ -65,7 +82,9 @@ async function salvar() {
     nome: campos.nome,
     final: campos.final,
     formaPagamentoId: campos.formaPagamentoId,
-    orcamentoMensalCentavos: campos.orcamentoMensalCentavos ?? 0,
+    recarga: campos.recarga,
+    orcamentoMensalCentavos:
+      campos.recarga === 'avulsa' ? 0 : (campos.orcamentoMensalCentavos ?? 0),
     diaFechamento: paraDia(campos.diaFechamento),
     diaVencimento: paraDia(campos.diaVencimento),
   }
@@ -103,7 +122,7 @@ async function salvar() {
   <ModalDialog
     :open="open"
     :titulo="editando ? 'Editar cartão' : 'Novo cartão'"
-    descricao="O orçamento vale por mês. Com o fechamento e o vencimento da fatura, cada compra no cartão já nasce com o vencimento certo."
+    descricao="Com o fechamento e o vencimento da fatura, cada compra no cartão já nasce com o vencimento certo."
     largura="520px"
     @fechar="emit('fechar')"
   >
@@ -155,7 +174,32 @@ async function salvar() {
         />
       </FormField>
 
+      <fieldset class="sm:col-span-2">
+        <legend class="mb-1.5 text-[12.5px] font-medium text-ink">Como o dinheiro entra</legend>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <label
+            v-for="t in TIPOS_RECARGA"
+            :key="t"
+            class="flex cursor-pointer gap-2.5 rounded-lg border px-3 py-2.5"
+            :class="campos.recarga === t ? 'border-accent bg-accent-soft' : 'border-line'"
+          >
+            <input
+              v-model="campos.recarga"
+              type="radio"
+              name="cartao-recarga"
+              :value="t"
+              class="mt-0.5"
+            />
+            <span>
+              <span class="block text-[13px] font-medium text-ink">{{ ROTULO_RECARGA[t] }}</span>
+              <span class="block text-[12px] text-muted">{{ ajudaRecarga[t] }}</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
       <FormField
+        v-if="campos.recarga === 'mensal'"
         rotulo="Orçamento do mês"
         para="cartao-orcamento"
         :erro="erros.orcamentoMensalCentavos"

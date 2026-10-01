@@ -17,6 +17,7 @@ import {
 // Só tipos: o drizzle-kit carrega este arquivo sozinho e não resolve importação de valor daqui.
 import type { TipoAnexo } from '../contracts/anexos.js'
 import type { Papel } from '../contracts/auth.js'
+import type { TipoRecarga } from '../contracts/cadastros.js'
 import type { RegistroLeitura } from '../contracts/leitura.js'
 import type {
   DetalheConferencia,
@@ -188,6 +189,11 @@ export const cartoes = pgTable(
     formaPagamentoId: integer('forma_pagamento_id')
       .notNull()
       .references(() => formasPagamento.id),
+    /**
+     * Como o dinheiro entra: `mensal` tem orçamento fixo por mês; `avulsa` recebe
+     * recargas de qualquer valor em qualquer dia (`recargas_cartao`) e vive do saldo.
+     */
+    recarga: text('recarga').$type<TipoRecarga>().notNull().default('mensal'),
     orcamentoMensalCentavos: centavos('orcamento_mensal_centavos').notNull().default(0),
     diaFechamento: integer('dia_fechamento'),
     diaVencimento: integer('dia_vencimento'),
@@ -197,10 +203,36 @@ export const cartoes = pgTable(
   (t) => [
     uniqueIndex('cartoes_setor_nome_idx').on(t.setorId, sql`lower(${t.nome})`),
     check('cartoes_orcamento_check', sql`${t.orcamentoMensalCentavos} >= 0`),
+    check('cartoes_recarga_check', sql`${t.recarga} in ('mensal', 'avulsa')`),
     check(
       'cartoes_dias_check',
       sql`(${t.diaFechamento} is null or ${t.diaFechamento} between 1 and 31) and (${t.diaVencimento} is null or ${t.diaVencimento} between 1 and 31)`,
     ),
+  ],
+)
+
+/**
+ * Dinheiro que entrou num cartão de recarga avulsa (valor e dia quaisquer).
+ * Não se apaga: registro errado sai do saldo com `removidaEm`.
+ */
+export const recargasCartao = pgTable(
+  'recargas_cartao',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    cartaoId: integer('cartao_id')
+      .notNull()
+      .references(() => cartoes.id),
+    data: dia('data').notNull(),
+    valorCentavos: centavos('valor_centavos').notNull(),
+    observacao: text('observacao'),
+    criadoPor: integer('criado_por').references(() => usuarios.id),
+    criadoEm: criadoEm(),
+    removidaEm: timestamp('removida_em', { withTimezone: true }),
+    removidaPor: integer('removida_por').references(() => usuarios.id),
+  },
+  (t) => [
+    index('recargas_cartao_cartao_idx').on(t.cartaoId, t.data),
+    check('recargas_cartao_valor_check', sql`${t.valorCentavos} > 0`),
   ],
 )
 

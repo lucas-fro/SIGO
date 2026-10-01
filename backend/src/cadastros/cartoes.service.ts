@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { asc, desc, eq, inArray, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm'
 import { enxergaSetor, exigirEdicaoNoSetor } from '../common/acesso.js'
 import { ehViolacaoUnica } from '../common/erros-db.js'
 import { erroDeValidacao } from '../common/validacao.js'
@@ -15,9 +15,11 @@ import type {
   EditarCartao,
   EditarGastoFixo,
   GastoFixo,
+  NovaRecarga,
   NovoCartao,
   NovoGastoFixo,
 } from '../contracts/cadastros.js'
+import { hoje } from '../contracts/datas.js'
 import type { ErroValidacao } from '../contracts/comum.js'
 import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
@@ -28,6 +30,7 @@ import {
   formasPagamento,
   fornecedores,
   gastosFixos,
+  recargasCartao,
   setores,
 } from '../db/schema.js'
 
@@ -42,6 +45,7 @@ export async function listarCartoes(db: Database, filtroSetor?: SQL): Promise<Ca
       nome: cartoes.nome,
       final: cartoes.final,
       formaPagamentoId: cartoes.formaPagamentoId,
+      recarga: cartoes.recarga,
       orcamentoMensalCentavos: cartoes.orcamentoMensalCentavos,
       diaFechamento: cartoes.diaFechamento,
       diaVencimento: cartoes.diaVencimento,
@@ -91,9 +95,30 @@ export async function listarCartoes(db: Database, filtroSetor?: SQL): Promise<Ca
     ativo: f.ativo,
   })
 
+  const recargas = await db
+    .select({
+      id: recargasCartao.id,
+      cartaoId: recargasCartao.cartaoId,
+      data: recargasCartao.data,
+      valorCentavos: recargasCartao.valorCentavos,
+      observacao: recargasCartao.observacao,
+    })
+    .from(recargasCartao)
+    .where(
+      and(
+        inArray(
+          recargasCartao.cartaoId,
+          lista.map((c) => c.id),
+        ),
+        isNull(recargasCartao.removidaEm),
+      ),
+    )
+    .orderBy(desc(recargasCartao.data), desc(recargasCartao.id))
+
   return lista.map((c) => ({
     ...c,
     gastosFixos: fixos.filter((f) => f.cartaoId === c.id).map(paraGastoFixo),
+    recargas: recargas.filter((r) => r.cartaoId === c.id),
   }))
 }
 
@@ -118,7 +143,9 @@ export class CartoesService {
     if (problemas.length) throw erroDeValidacao(problemas)
 
     try {
-      const [novo] = await this.db.insert(cartoes).values(dados).returning({ id: cartoes.id })
+      // Cartão de recarga avulsa vive do saldo: não tem orçamento mensal.
+      const valores = dados.recarga === 'avulsa' ? { ...dados, orcamentoMensalCentavos: 0 } : dados
+      const [novo] = await this.db.insert(cartoes).values(valores).returning({ id: cartoes.id })
       return this.carregar(novo!.id)
     } catch (err) {
       if (ehViolacaoUnica(err)) throw new ConflictException(CARTAO_REPETIDO)
@@ -156,6 +183,7 @@ export class CartoesService {
     const campos = Object.fromEntries(
       Object.entries(mudancas).filter(([, valor]) => valor !== undefined),
     ) as Partial<typeof cartoes.$inferInsert>
+    if ((mudancas.recarga ?? atual.recarga) === 'avulsa') campos.orcamentoMensalCentavos = 0
     try {
       if (Object.keys(campos).length) {
         await this.db.update(cartoes).set(campos).where(eq(cartoes.id, id))
@@ -191,6 +219,42 @@ export class CartoesService {
     ) as Partial<typeof gastosFixos.$inferInsert>
     if (Object.keys(campos).length) {
       await this.db.update(gastosFixos).set(campos).where(eq(gastosFixos.id, id))
+    }
+    return this.carregar(cartao.id)
+  }
+
+  /** Recarga é do dia a dia: quem lança no setor do cartão registra. */
+  async criarRecarga(usuario: UsuarioSessao, dados: NovaRecarga): Promise<Cartao> {
+    const cartao = await this.cartaoVisivel(usuario, dados.cartaoId)
+    exigirEdicaoNoSetor(usuario, cartao.setorId)
+    const problemas: ErroValidacao['issues'] = []
+    if (cartao.recarga !== 'avulsa') {
+      problemas.push({
+        path: 'cartaoId',
+        message: 'Este cartão tem orçamento mensal; recarga é só para cartão de recarga avulsa',
+      })
+    } else if (!cartao.ativo) {
+      problemas.push({ path: 'cartaoId', message: 'Cartão desativado' })
+    }
+    if (dados.data > hoje()) {
+      problemas.push({ path: 'data', message: 'A recarga não pode ter data no futuro' })
+    }
+    if (problemas.length) throw erroDeValidacao(problemas)
+    await this.db.insert(recargasCartao).values({ ...dados, criadoPor: usuario.id })
+    return this.carregar(cartao.id)
+  }
+
+  /** Recarga registrada errada sai do saldo; a linha fica, com quem tirou e quando. */
+  async removerRecarga(usuario: UsuarioSessao, id: number): Promise<Cartao> {
+    const [recarga] = await this.db.select().from(recargasCartao).where(eq(recargasCartao.id, id))
+    if (!recarga) throw new NotFoundException('Recarga não encontrada')
+    const cartao = await this.cartaoVisivel(usuario, recarga.cartaoId)
+    exigirEdicaoNoSetor(usuario, cartao.setorId)
+    if (!recarga.removidaEm) {
+      await this.db
+        .update(recargasCartao)
+        .set({ removidaEm: new Date(), removidaPor: usuario.id })
+        .where(eq(recargasCartao.id, id))
     }
     return this.carregar(cartao.id)
   }

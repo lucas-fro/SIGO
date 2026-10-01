@@ -1,5 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, between, desc, eq, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  between,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { escopoDeSetor } from '../common/acesso.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
@@ -15,6 +28,7 @@ import {
   gastosFixos,
   lancamentos,
   parcelas,
+  recargasCartao,
 } from '../db/schema.js'
 
 /** O dia (em São Paulo) em que o registro foi cadastrado. */
@@ -56,6 +70,8 @@ export class PainelService {
       lancadoPorCartao,
       fixosPorCartao,
       aPagar,
+      gastoAntesPorCartao,
+      recargasPorCartao,
     ] = await Promise.all([
       this.db
         .select({ id: categorias.id, nome: categorias.nome, centavos: soma })
@@ -77,6 +93,7 @@ export class PainelService {
           id: cartoes.id,
           nome: cartoes.nome,
           final: cartoes.final,
+          recarga: cartoes.recarga,
           orcamentoCentavos: cartoes.orcamentoMensalCentavos,
         })
         .from(cartoes)
@@ -124,6 +141,22 @@ export class PainelService {
         .where(and(isNull(parcelas.pagoEm), ativos, lte(parcelas.vencimento, somarDias(dia, 30))))
         .orderBy(asc(parcelas.vencimento), asc(parcelas.id))
         .limit(12),
+      // Cartão de recarga avulsa vive do saldo: o que entrou e saiu antes do mês.
+      this.db
+        .select({ cartaoId: lancamentos.cartaoId, centavos: soma })
+        .from(lancamentos)
+        .innerJoin(cartoes, eq(cartoes.id, lancamentos.cartaoId))
+        .where(and(ativos, eq(cartoes.recarga, 'avulsa'), lt(lancamentos.dataGasto, inicio)))
+        .groupBy(lancamentos.cartaoId),
+      this.db
+        .select({
+          cartaoId: recargasCartao.cartaoId,
+          antes: sql<string>`coalesce(sum(${recargasCartao.valorCentavos}) filter (where ${recargasCartao.data} < ${inicio}::date), 0)::bigint`,
+          noMes: sql<string>`coalesce(sum(${recargasCartao.valorCentavos}) filter (where ${recargasCartao.data} between ${inicio}::date and ${fim}::date), 0)::bigint`,
+        })
+        .from(recargasCartao)
+        .where(isNull(recargasCartao.removidaEm))
+        .groupBy(recargasCartao.cartaoId),
     ])
 
     const fatia =
@@ -141,11 +174,23 @@ export class PainelService {
       cartoes: listaCartoes.map((c) => {
         const lancado = lancadoPorCartao.find((l) => l.cartaoId === c.id)
         const fixos = fixosPorCartao.find((f) => f.cartaoId === c.id)
+        const recargas = recargasPorCartao.find((r) => r.cartaoId === c.id)
+        const saldoAnterior =
+          Number(recargas?.antes ?? 0) -
+          Number(gastoAntesPorCartao.find((g) => g.cartaoId === c.id)?.centavos ?? 0)
+        const recarregado = Number(recargas?.noMes ?? 0)
+        const avulsa = c.recarga === 'avulsa'
         return {
           id: c.id,
           nome: c.nome,
           final: c.final,
-          orcamentoCentavos: c.orcamentoCentavos,
+          recarga: c.recarga,
+          // No avulso, o "orçamento" do mês é o que havia de saldo mais o que entrou nele.
+          orcamentoCentavos: avulsa
+            ? Math.max(0, saldoAnterior + recarregado)
+            : c.orcamentoCentavos,
+          saldoAnteriorCentavos: avulsa ? saldoAnterior : 0,
+          recarregadoCentavos: avulsa ? recarregado : 0,
           lancadoCentavos: Number(lancado?.centavos ?? 0),
           fixosCentavos: Number(fixos?.centavos ?? 0),
           fixosPendentesCentavos: Number(fixos?.pendentesCentavos ?? 0),

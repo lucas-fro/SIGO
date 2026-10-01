@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { CalendarPlus, CreditCard, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
-import type { Cartao, GastoFixo } from '#contracts'
+import {
+  CalendarPlus,
+  CreditCard,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+  Wallet,
+  X,
+} from 'lucide-vue-next'
+import type { Cartao, GastoFixo, RecargaCartao } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 import { useCadastros } from '~/composables/useCadastros'
-import { reais } from '~/composables/useFormat'
+import { data, reais } from '~/composables/useFormat'
 import { usePainel } from '~/composables/useLancamentos'
 import { useToast } from '~/composables/useToast'
 
@@ -49,6 +58,32 @@ const cartaoEmEdicao = ref<Cartao | null>(null)
 const modalFixo = ref(false)
 const cartaoDoFixo = ref<Cartao | null>(null)
 const fixoEmEdicao = ref<GastoFixo | null>(null)
+const modalRecarga = ref(false)
+const cartaoDaRecarga = ref<Cartao | null>(null)
+const todasRecargas = reactive<Record<number, boolean>>({})
+const recargasVisiveis = (c: Cartao) => (todasRecargas[c.id] ? c.recargas : c.recargas.slice(0, 5))
+/** Saldo de hoje: o de antes do mês, mais as recargas, menos o lançado no mês. */
+function saldoAtual(c: Cartao): number | null {
+  const s = situacaoDoMes(c)
+  return s ? s.saldoAnteriorCentavos + s.recarregadoCentavos - s.lancadoCentavos : null
+}
+function novaRecarga(c: Cartao) {
+  cartaoDaRecarga.value = c
+  modalRecarga.value = true
+}
+async function removerRecarga(r: RecargaCartao) {
+  if (!confirm(`Tirar a recarga de ${reais(r.valorCentavos)} de ${data(r.data)} do saldo?`)) return
+  try {
+    await api.post(`/recargas/${r.id}/remover`, {})
+    await qc.invalidateQueries({ queryKey: ['cadastros'] })
+    void qc.invalidateQueries({ queryKey: ['painel'] })
+    toast.sucesso('Recarga retirada do saldo')
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    toast.erro(e.message)
+  }
+}
+
 const modalLancar = ref(false)
 const cartaoParaLancar = ref<Cartao | null>(null)
 
@@ -92,8 +127,9 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
   <div class="px-5 py-5 sm:px-6">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
       <p class="max-w-2xl text-[13px] text-muted">
-        Cada cartão tem um orçamento por mês. Os gastos fixos (assinaturas, ferramentas) já contam
-        como comprometidos desde o início do mês e viram lançamento pelo botão
+        Cada cartão tem um orçamento por mês ou vive de recargas avulsas (de qualquer valor, em
+        qualquer dia). Os gastos fixos (assinaturas, ferramentas) já contam como comprometidos desde
+        o início do mês e viram lançamento pelo botão
         <span class="font-medium text-ink">Lançar gastos fixos</span>.
       </p>
       <div class="flex items-center gap-2">
@@ -194,8 +230,71 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
         </header>
 
         <div class="grid gap-6 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+          <!-- recarga avulsa: saldo e recargas -->
+          <div v-if="c.recarga === 'avulsa'">
+            <div class="flex items-center justify-between gap-2">
+              <div class="eyebrow">Saldo</div>
+              <button
+                v-if="canEdit && c.ativo"
+                type="button"
+                class="btn btn-sm btn-ghost"
+                @click="novaRecarga(c)"
+              >
+                <Wallet :size="14" /> Registrar recarga
+              </button>
+            </div>
+            <div
+              class="mt-1 text-[22px] leading-tight font-semibold tracking-[-0.02em]"
+              :class="(saldoAtual(c) ?? 0) < 0 ? 'text-neg' : 'text-ink'"
+            >
+              {{ saldoAtual(c) === null ? '—' : reais(saldoAtual(c)) }}
+            </div>
+            <p class="mt-0.5 text-[12.5px] text-muted">
+              Recargas somadas, menos o que foi lançado no cartão.
+            </p>
+            <div v-if="situacaoDoMes(c)" class="mt-4 rounded-lg bg-surface-alt p-3">
+              <div class="eyebrow mb-2">Situação neste mês</div>
+              <OrcamentoCartao :cartao="situacaoDoMes(c)!" />
+            </div>
+            <div class="eyebrow mt-4">Recargas</div>
+            <p v-if="!c.recargas.length" class="mt-2 text-[13px] text-faint">
+              Nenhuma recarga registrada.
+            </p>
+            <ul v-else class="mt-1 divide-y divide-line-soft">
+              <li v-for="r in recargasVisiveis(c)" :key="r.id" class="flex items-center gap-3 py-2">
+                <span class="tnum w-[84px] shrink-0 text-[12.5px] text-muted">{{
+                  data(r.data)
+                }}</span>
+                <span class="min-w-0 flex-1 truncate text-[12.5px] text-faint">{{
+                  r.observacao
+                }}</span>
+                <span class="tnum shrink-0 text-[13px] font-medium text-ink">{{
+                  reais(r.valorCentavos)
+                }}</span>
+                <button
+                  v-if="canEdit"
+                  type="button"
+                  class="btn-icon shrink-0"
+                  title="Tirar do saldo"
+                  :aria-label="`Tirar a recarga de ${data(r.data)} do saldo`"
+                  @click="removerRecarga(r)"
+                >
+                  <X :size="14" />
+                </button>
+              </li>
+            </ul>
+            <button
+              v-if="c.recargas.length > 5"
+              type="button"
+              class="btn btn-sm btn-ghost mt-1"
+              @click="todasRecargas[c.id] = !todasRecargas[c.id]"
+            >
+              {{ todasRecargas[c.id] ? 'Mostrar menos' : `Ver todas (${c.recargas.length})` }}
+            </button>
+          </div>
+
           <!-- orçamento -->
-          <div>
+          <div v-else>
             <div class="eyebrow">Orçamento do mês</div>
             <div class="mt-1 text-[22px] leading-tight font-semibold tracking-[-0.02em] text-ink">
               {{ reais(c.orcamentoMensalCentavos) }}
@@ -303,6 +402,7 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
       </section>
     </div>
 
+    <RecargaModal :open="modalRecarga" :cartao="cartaoDaRecarga" @fechar="modalRecarga = false" />
     <CartaoModal :open="modalCartao" :cartao="cartaoEmEdicao" @fechar="modalCartao = false" />
     <GastoFixoModal
       :open="modalFixo"

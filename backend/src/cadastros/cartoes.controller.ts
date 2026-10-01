@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseIntPipe, Patch, Post } from '@nestjs/common'
+import { Body, Controller, HttpCode, Param, ParseIntPipe, Patch, Post } from '@nestjs/common'
 import { Papeis, UsuarioAtual } from '../auth/decorators.js'
 import { zodDto } from '../common/validacao.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
@@ -7,6 +7,7 @@ import {
   editarCartaoSchema,
   editarGastoFixoSchema,
   gastoFixoSchema,
+  recargaSchema,
 } from '../contracts/cadastros.js'
 import { CartoesService } from './cartoes.service.js'
 
@@ -14,6 +15,7 @@ class NovoCartaoDto extends zodDto(cartaoSchema) {}
 class EditarCartaoDto extends zodDto(editarCartaoSchema) {}
 class NovoGastoFixoDto extends zodDto(gastoFixoSchema) {}
 class EditarGastoFixoDto extends zodDto(editarGastoFixoSchema) {}
+class NovaRecargaDto extends zodDto(recargaSchema) {}
 
 /** A listagem vem junto das outras listas, em GET /cadastros. */
 @Controller()
@@ -50,5 +52,18 @@ export class CartoesController {
     @UsuarioAtual() usuario: UsuarioSessao,
   ) {
     return this.cartoes.editarGastoFixo(usuario, id, mudancas)
+  }
+
+  @Post('recargas')
+  @Papeis('admin', 'editor')
+  criarRecarga(@Body() dados: NovaRecargaDto, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.cartoes.criarRecarga(usuario, dados)
+  }
+
+  @Post('recargas/:id/remover')
+  @HttpCode(200)
+  @Papeis('admin', 'editor')
+  removerRecarga(@Param('id', ParseIntPipe) id: number, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.cartoes.removerRecarga(usuario, id)
   }
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { TipoRecarga } from './cadastros.js'
 import { idQuery, mesQuery } from './comum.js'
 
 /*
@@ -35,7 +36,16 @@ export interface OrcamentoCartao {
   id: number
   nome: string
   final: string | null
+  recarga: TipoRecarga
+  /**
+   * Mensal: o orçamento do cadastro. Avulsa: o disponível no mês, saldo de antes
+   * mais as recargas do mês (0 se o saldo de antes for negativo e nada entrou).
+   */
   orcamentoCentavos: number
+  /** Avulsa: recargas menos gastos de antes do mês (pode ser negativo). */
+  saldoAnteriorCentavos: number
+  /** Avulsa: soma das recargas com data no mês. */
+  recarregadoCentavos: number
   lancadoCentavos: number
   /** Soma dos gastos fixos ativos do cartão, por mês. */
   fixosCentavos: number

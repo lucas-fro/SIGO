@@ -36,7 +36,10 @@ dos comentários: português do Brasil.
   vale `hoje()`. Tudo que lista ou soma lançamentos usa `leftJoin` nesses cadastros, e o
   dashboard mostra o que ficou em branco como "Sem categoria"/"Sem empreendimento".
 - Cartão (opcional): se informado, precisa de uma forma `cartao = true` e ser da mesma
-  forma e setor; vencimento da compra = `vencimentoDaFatura` (contratos). Gasto fixo só
+  forma e setor; vencimento da compra = `vencimentoDaFatura` (contratos). `cartoes.recarga`:
+  `mensal` tem orçamento por mês; `avulsa` não tem orçamento (fica 0) e vive do saldo =
+  recargas (`recargas_cartao`, qualquer valor e dia, nunca no futuro; errada sai com
+  `removida_em`) menos os lançamentos ativos no cartão. Gasto fixo só
   vira lançamento por `POST /lancamentos/lancar-fixos` (idempotente por mês, com advisory lock).
 - Campanha é detalhe secundário: fica no formulário, no detalhe (quando informada) e na
   exportação, não em filtros, colunas ou gráficos.

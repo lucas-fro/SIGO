@@ -4,7 +4,8 @@ import type { OrcamentoCartao } from '#contracts'
 import { reais } from '~/composables/useFormat'
 
 /*
-  Medidor do orçamento de um cartão no mês.
+  Medidor do orçamento de um cartão no mês. No cartão de recarga avulsa, o
+  trilho é o disponível no mês: saldo de antes mais as recargas do mês.
 
   O trilho é o orçamento. O primeiro trecho é o que já foi lançado; o
   segundo, os gastos fixos que ainda não viraram lançamento (vão cair, então
@@ -15,6 +16,7 @@ import { reais } from '~/composables/useFormat'
 */
 const props = defineProps<{ cartao: OrcamentoCartao; encerrado?: boolean }>()
 
+const avulsa = computed(() => props.cartao.recarga === 'avulsa')
 const comprometido = computed(
   () => props.cartao.lancadoCentavos + props.cartao.fixosPendentesCentavos,
 )
@@ -79,10 +81,13 @@ const corLancado = computed(
       <span class="text-muted">
         <span class="tnum font-semibold text-ink">{{ reais(comprometido) }}</span>
         <template v-if="cartao.orcamentoCentavos">
-          de <span class="tnum">{{ reais(cartao.orcamentoCentavos) }}</span>
+          de <span class="tnum">{{ reais(cartao.orcamentoCentavos) }}</span
+          ><template v-if="avulsa"> disponível</template>
         </template>
       </span>
-      <span v-if="situacao === 'sem'" class="text-faint">Sem orçamento definido</span>
+      <span v-if="situacao === 'sem'" class="text-faint">{{
+        avulsa ? 'Sem saldo nem recarga' : 'Sem orçamento definido'
+      }}</span>
       <span
         v-else-if="situacao === 'estourou'"
         class="flex items-center gap-1 font-medium text-neg"
@@ -100,6 +105,10 @@ const corLancado = computed(
         <CircleCheck :size="13" class="text-pos" /> {{ encerrado ? 'Sobrou' : 'Disponível' }}
         <span class="tnum font-medium text-ink">{{ reais(disponivel) }}</span>
       </span>
+    </div>
+    <div v-if="avulsa" class="mt-0.5 text-[11.5px] text-faint">
+      Saldo anterior <span class="tnum">{{ reais(cartao.saldoAnteriorCentavos) }}</span> · recargas
+      no mês <span class="tnum">{{ reais(cartao.recarregadoCentavos) }}</span>
     </div>
     <div class="mt-0.5 text-[11.5px] text-faint">
       Lançado <span class="tnum">{{ reais(cartao.lancadoCentavos) }}</span>
