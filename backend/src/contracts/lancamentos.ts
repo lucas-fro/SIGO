@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { Anexo } from './anexos.js'
+import type { VinculoLancamentoSienge } from './sienge.js'
 import { data, id, idQuery, mesQuery, textoOpcional, valorCentavos, type Ref } from './comum.js'
 import { hoje } from './datas.js'
 import { somaCentavos, type SituacaoPagamento } from './parcelas.js'
@@ -24,6 +26,8 @@ export const TIPOS_EVENTO = [
   'cancelado',
   'pagamento_registrado',
   'pagamento_desfeito',
+  'anexo_adicionado',
+  'anexo_removido',
 ] as const
 export type TipoEvento = (typeof TIPOS_EVENTO)[number]
 
@@ -72,6 +76,11 @@ const campos = z.object({
     .array(parcelaSchema, { error: 'Informe as parcelas' })
     .min(1, { error: 'Informe ao menos uma parcela' })
     .max(60, { error: 'Use no máximo 60 parcelas' }),
+  /** Comprovantes enviados no formulário (rascunhos de quem salva) que passam a ser deste lançamento. */
+  anexoIds: z
+    .array(id('Comprovante inválido'))
+    .max(10, { error: 'Anexe no máximo 10 comprovantes por vez' })
+    .default([]),
 })
 
 /** A soma das parcelas tem que fechar com o total: é o que impede um total que não confere com o que se paga. */
@@ -85,8 +94,14 @@ const regraDaSoma = {
   path: ['parcelas'],
 }
 
-/** Edição: substitui todos os campos e as parcelas. */
-export const lancamentoSchema = campos.refine(parcelasFecham, regraDaSoma)
+/**
+ * Edição: substitui todos os campos e as parcelas. `versao` é o `atualizadoEm`
+ * do lançamento quando o formulário abriu: se ele mudou nesse meio tempo (por
+ * exemplo, um pagamento conferido no Sienge), a API recusa em vez de desfazer.
+ */
+export const lancamentoSchema = campos
+  .extend({ versao: z.string().nullish() })
+  .refine(parcelasFecham, regraDaSoma)
 export type LancamentoInput = z.output<typeof lancamentoSchema>
 
 /**
@@ -126,6 +141,8 @@ export const listarLancamentosSchema = z.object({
   fornecedorId: idQuery.optional(),
   campanhaId: idQuery.optional(),
   cartaoId: idQuery.optional(),
+  /** Com ou sem comprovante anexado. */
+  comprovante: z.enum(['com', 'sem']).optional(),
   situacao: z.enum([...SITUACOES_LANCAMENTO, 'todos']).default('ativo'),
   /** `em_aberto` inclui os vencidos e os parcialmente pagos: tudo o que ainda tem parcela a pagar. */
   pagamento: z.enum(FILTROS_PAGAMENTO).optional(),
@@ -166,6 +183,8 @@ export interface LancamentoResumo {
   codigoIdentificacao: string | null
   situacao: SituacaoLancamento
   pagamento: ResumoPagamento
+  /** Quantos comprovantes o lançamento tem. */
+  anexos: number
   criadoEm: string
 }
 
@@ -203,8 +222,17 @@ export interface DadosEvento {
   /** `pagamento_*`: número da parcela e a data registrada. */
   parcela?: number
   pagoEm?: string | null
-  /** `criado`: de onde veio o lançamento, quando não foi digitado. */
-  origem?: 'gasto_fixo'
+  /**
+   * De onde veio, quando não foi digitado: `criado` pelo botão de gastos
+   * fixos; `pagamento_registrado` pela conferência com o Sienge.
+   */
+  origem?: 'gasto_fixo' | 'sienge'
+  /** `pagamento_registrado` pelo Sienge: o título de lá que foi conferido. */
+  tituloSienge?: number
+  /** Pago no Sienge sem data no extrato: a data é a da conferência, não a do pagamento. */
+  dataAproximada?: boolean
+  /** `anexo_*`: o nome do arquivo. */
+  anexo?: string
 }
 
 export interface Evento {
@@ -215,9 +243,12 @@ export interface Evento {
   dados: DadosEvento | null
 }
 
-export interface LancamentoDetalhe extends LancamentoResumo {
+export interface LancamentoDetalhe extends Omit<LancamentoResumo, 'anexos'> {
   observacao: string | null
   parcelas: Parcela[]
+  anexos: Anexo[]
+  /** Título a pagar do Sienge casado com este lançamento pela conferência de pagamentos. */
+  sienge: VinculoLancamentoSienge | null
   eventos: Evento[]
   criadoPor: Ref
   atualizadoEm: string | null

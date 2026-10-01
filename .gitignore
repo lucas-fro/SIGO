@@ -9,3 +9,6 @@ coverage
 
 # Segredos: senha do banco, do administrador e a chave da sessão.
 .env
+
+# Comprovantes enviados (no servidor, a pasta montada como volume).
+dados/

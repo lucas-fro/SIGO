@@ -18,6 +18,9 @@ git clone <repositório> sigo && cd sigo
 cp .env.example .env
 nano .env          # DATABASE_URL aponta para o container `postgres`, não localhost
 chmod 600 .env
+# Pasta dos comprovantes, do usuário `node` do container (uid 1000). Sem isso o
+# Docker cria como root e todo envio de comprovante falha.
+mkdir -p dados/comprovantes && sudo chown -R 1000:1000 dados
 
 docker compose build
 docker compose up -d
@@ -85,9 +88,14 @@ código. Depois de 8 tentativas erradas o IP fica bloqueado por 15 minutos.
 
 ```bash
 git pull
+# Só na primeira atualização depois dos comprovantes (não faz mal repetir):
+mkdir -p dados/comprovantes && sudo chown -R 1000:1000 dados
 docker compose build
 docker compose up -d
 ```
+
+Se a pasta estiver sem permissão, o log do backend avisa na subida ("a pasta dos
+comprovantes … não aceita escrita").
 
 Mudou só o backend? `docker compose build backend && docker compose up -d backend`.
 
@@ -98,6 +106,26 @@ Mudou só o backend? `docker compose build backend && docker compose up -d backe
 - **A build do front usa a raiz do repositório como contexto**, porque importa
   `backend/src/contracts`. O `.dockerignore` da raiz mantém o contexto leve.
 - **Backup**: o banco `sigo` fica no Postgres compartilhado; entre na rotina de
-  `pg_dump` que já existir para os outros bancos.
+  `pg_dump` que já existir para os outros bancos. **A pasta `dados/comprovantes` também
+  precisa de backup**: o banco só guarda o registro, o arquivo está nela.
+- **Pasta dos comprovantes**: `dados/comprovantes` na pasta do projeto, montada em
+  `/app/dados/comprovantes` pelo compose. Precisa ser do uid 1000 (o usuário `node`
+  do container); o comando está nos blocos de deploy acima.
+- **Leitura por IA**: o admin liga em Cadastros → Leitura por IA, colando a chave da API
+  (OpenAI por padrão; Anthropic também serve). A chave é conferida na própria API antes de
+  salvar e fica no banco cifrada com o `AUTH_SECRET` (sem ele, com a `ADMIN_PASSWORD`):
+  trocar esse segredo deixa a chave ilegível, e a tela pede para colar de novo. Por isso,
+  defina um `AUTH_SECRET` fixo em produção. O backend precisa de saída HTTPS para
+  `api.openai.com` (ou `api.anthropic.com`). Sem chave, o arquivo continua sendo anexado.
+  Se houver proxy com tempo limite curto na frente da API, deixe ao menos 2 minutos para
+  a rota `/api/anexos/:id/ler`.
 - **`npm run db:exemplo` recusa rodar com `NODE_ENV=production`** e em banco que
   já tenha lançamento: dados de exemplo nunca chegam à produção.
+- **Sienge**: `SIENGE_SUBDOMAIN`, `SIENGE_USER` e `SIENGE_PASSWORD` no `.env` ligam o
+  quadro "No Sienge em <mês>" (sem elas, ele aparece como sem conexão). O backend
+  precisa de saída HTTPS para `api.sienge.com.br`. Prefira um usuário de API próprio do
+  SIGO no Painel de Integrações, com leitura de títulos a pagar (e parcelas), centros de
+  custo, credores e extrato de contas (a conferência de pagamentos usa os três últimos). O
+  limite de 200 req/min é do subdomínio inteiro e dividido com o Painel Sienge: mantenha
+  `SIENGE_RATE_LIMIT_PER_MINUTE` baixo (40 por padrão). As tabelas `sienge_*` são
+  cópia e podem ser apagadas; a próxima consulta refaz.

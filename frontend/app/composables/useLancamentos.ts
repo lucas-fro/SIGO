@@ -1,5 +1,11 @@
 import { useQueryClient } from '@tanstack/vue-query'
-import type { Indicadores, LancamentoDetalhe, Painel } from '#contracts'
+import type {
+  GastoSienge,
+  Indicadores,
+  LancamentoDetalhe,
+  Painel,
+  StatusConferencia,
+} from '#contracts'
 import { useApiQuery } from '~/composables/useApi'
 
 /** Chave de cache do detalhe: a mesma que `useApiQuery` monta para `/lancamentos/:id`. */
@@ -29,6 +35,17 @@ export const useIndicadores = (mes?: MaybeRefOrGetter<string | undefined>) =>
 export const usePainel = (mes?: MaybeRefOrGetter<string | undefined>) =>
   useApiQuery<Painel>('painel', '/painel', () => ({ mes: toValue(mes) }), { keepPrevious: true })
 
+/**
+ * O gasto do setor lançado no Sienge no mês. A API responde na hora com a
+ * cópia local; enquanto ela busca o Sienge em segundo plano, pergunta de novo
+ * a cada poucos segundos.
+ */
+export const useGastoSienge = (mes?: MaybeRefOrGetter<string | undefined>) =>
+  useApiQuery<GastoSienge>('sienge-gasto', '/sienge/gasto', () => ({ mes: toValue(mes) }), {
+    keepPrevious: true,
+    refetchInterval: (g) => (g?.atualizando ? 4000 : false),
+  })
+
 /** O que depende dos lançamentos (e do orçamento dos cartões) e precisa ser refeito quando algo muda. */
 export function invalidarTotais(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['lancamentos'] })
@@ -47,3 +64,12 @@ export function useSincronizarLancamento() {
     invalidarTotais(qc)
   }
 }
+
+/** Situação da conferência de pagamentos com o Sienge; enquanto uma roda, pergunta de novo a cada 3 s. */
+export const useConferenciaSienge = () =>
+  useApiQuery<StatusConferencia>(
+    'sienge-conferencia',
+    '/sienge/conferencia',
+    {},
+    { refetchInterval: (s) => (s?.andamento ? 3000 : false) },
+  )

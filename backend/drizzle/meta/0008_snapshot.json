@@ -1,0 +1,2459 @@
+{
+  "id": "888fe93e-74c2-4b0c-a738-085ec3319de6",
+  "prevId": "7aa8799e-fd91-4b2d-ad73-7151c3b9586c",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.anexos": {
+      "name": "anexos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "anexos_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "lancamento_id": {
+          "name": "lancamento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tamanho": {
+          "name": "tamanho",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "caminho": {
+          "name": "caminho",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enviado_por": {
+          "name": "enviado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enviado_em": {
+          "name": "enviado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "removido_em": {
+          "name": "removido_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "removido_por": {
+          "name": "removido_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "leitura": {
+          "name": "leitura",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "anexos_lancamento_idx": {
+          "name": "anexos_lancamento_idx",
+          "columns": [
+            {
+              "expression": "lancamento_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "anexos_sha256_idx": {
+          "name": "anexos_sha256_idx",
+          "columns": [
+            {
+              "expression": "sha256",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "anexos_lancamento_id_lancamentos_id_fk": {
+          "name": "anexos_lancamento_id_lancamentos_id_fk",
+          "tableFrom": "anexos",
+          "tableTo": "lancamentos",
+          "columnsFrom": [
+            "lancamento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "anexos_enviado_por_usuarios_id_fk": {
+          "name": "anexos_enviado_por_usuarios_id_fk",
+          "tableFrom": "anexos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "enviado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "anexos_removido_por_usuarios_id_fk": {
+          "name": "anexos_removido_por_usuarios_id_fk",
+          "tableFrom": "anexos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "removido_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "anexos_caminho_unique": {
+          "name": "anexos_caminho_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "caminho"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "anexos_tipo_check": {
+          "name": "anexos_tipo_check",
+          "value": "\"anexos\".\"tipo\" in ('application/pdf', 'image/jpeg', 'image/png')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.campanhas": {
+      "name": "campanhas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "campanhas_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "campanhas_setor_nome_idx": {
+          "name": "campanhas_setor_nome_idx",
+          "columns": [
+            {
+              "expression": "setor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "campanhas_setor_id_setores_id_fk": {
+          "name": "campanhas_setor_id_setores_id_fk",
+          "tableFrom": "campanhas",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cartoes": {
+      "name": "cartoes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "cartoes_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "final": {
+          "name": "final",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forma_pagamento_id": {
+          "name": "forma_pagamento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "orcamento_mensal_centavos": {
+          "name": "orcamento_mensal_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "dia_fechamento": {
+          "name": "dia_fechamento",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dia_vencimento": {
+          "name": "dia_vencimento",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "cartoes_setor_nome_idx": {
+          "name": "cartoes_setor_nome_idx",
+          "columns": [
+            {
+              "expression": "setor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "cartoes_setor_id_setores_id_fk": {
+          "name": "cartoes_setor_id_setores_id_fk",
+          "tableFrom": "cartoes",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cartoes_forma_pagamento_id_formas_pagamento_id_fk": {
+          "name": "cartoes_forma_pagamento_id_formas_pagamento_id_fk",
+          "tableFrom": "cartoes",
+          "tableTo": "formas_pagamento",
+          "columnsFrom": [
+            "forma_pagamento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "cartoes_orcamento_check": {
+          "name": "cartoes_orcamento_check",
+          "value": "\"cartoes\".\"orcamento_mensal_centavos\" >= 0"
+        },
+        "cartoes_dias_check": {
+          "name": "cartoes_dias_check",
+          "value": "(\"cartoes\".\"dia_fechamento\" is null or \"cartoes\".\"dia_fechamento\" between 1 and 31) and (\"cartoes\".\"dia_vencimento\" is null or \"cartoes\".\"dia_vencimento\" between 1 and 31)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.categorias": {
+      "name": "categorias",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "categorias_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "categorias_setor_nome_idx": {
+          "name": "categorias_setor_nome_idx",
+          "columns": [
+            {
+              "expression": "setor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "categorias_setor_id_setores_id_fk": {
+          "name": "categorias_setor_id_setores_id_fk",
+          "tableFrom": "categorias",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.configuracoes": {
+      "name": "configuracoes",
+      "schema": "",
+      "columns": {
+        "chave": {
+          "name": "chave",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "valor": {
+          "name": "valor",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_por": {
+          "name": "atualizado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "configuracoes_atualizado_por_usuarios_id_fk": {
+          "name": "configuracoes_atualizado_por_usuarios_id_fk",
+          "tableFrom": "configuracoes",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "atualizado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.empreendimentos": {
+      "name": "empreendimentos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "empreendimentos_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "institucional": {
+          "name": "institucional",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "empreendimentos_nome_idx": {
+          "name": "empreendimentos_nome_idx",
+          "columns": [
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.eventos": {
+      "name": "eventos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "eventos_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "lancamento_id": {
+          "name": "lancamento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usuario_id": {
+          "name": "usuario_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "em": {
+          "name": "em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "dados": {
+          "name": "dados",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "eventos_lancamento_idx": {
+          "name": "eventos_lancamento_idx",
+          "columns": [
+            {
+              "expression": "lancamento_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "em",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "eventos_lancamento_id_lancamentos_id_fk": {
+          "name": "eventos_lancamento_id_lancamentos_id_fk",
+          "tableFrom": "eventos",
+          "tableTo": "lancamentos",
+          "columnsFrom": [
+            "lancamento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "eventos_usuario_id_usuarios_id_fk": {
+          "name": "eventos_usuario_id_usuarios_id_fk",
+          "tableFrom": "eventos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "usuario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.formas_pagamento": {
+      "name": "formas_pagamento",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "formas_pagamento_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cartao": {
+          "name": "cartao",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "formas_pagamento_nome_idx": {
+          "name": "formas_pagamento_nome_idx",
+          "columns": [
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.fornecedores": {
+      "name": "fornecedores",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "fornecedores_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "documento": {
+          "name": "documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "fornecedores_criado_por_usuarios_id_fk": {
+          "name": "fornecedores_criado_por_usuarios_id_fk",
+          "tableFrom": "fornecedores",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "criado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "fornecedores_documento_unique": {
+          "name": "fornecedores_documento_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "documento"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.gastos_fixos": {
+      "name": "gastos_fixos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "gastos_fixos_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "cartao_id": {
+          "name": "cartao_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_centavos": {
+          "name": "valor_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dia_cobranca": {
+          "name": "dia_cobranca",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "fornecedor_id": {
+          "name": "fornecedor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "categoria_id": {
+          "name": "categoria_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "empreendimento_id": {
+          "name": "empreendimento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "gastos_fixos_cartao_idx": {
+          "name": "gastos_fixos_cartao_idx",
+          "columns": [
+            {
+              "expression": "cartao_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gastos_fixos_cartao_id_cartoes_id_fk": {
+          "name": "gastos_fixos_cartao_id_cartoes_id_fk",
+          "tableFrom": "gastos_fixos",
+          "tableTo": "cartoes",
+          "columnsFrom": [
+            "cartao_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "gastos_fixos_fornecedor_id_fornecedores_id_fk": {
+          "name": "gastos_fixos_fornecedor_id_fornecedores_id_fk",
+          "tableFrom": "gastos_fixos",
+          "tableTo": "fornecedores",
+          "columnsFrom": [
+            "fornecedor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "gastos_fixos_categoria_id_categorias_id_fk": {
+          "name": "gastos_fixos_categoria_id_categorias_id_fk",
+          "tableFrom": "gastos_fixos",
+          "tableTo": "categorias",
+          "columnsFrom": [
+            "categoria_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "gastos_fixos_empreendimento_id_empreendimentos_id_fk": {
+          "name": "gastos_fixos_empreendimento_id_empreendimentos_id_fk",
+          "tableFrom": "gastos_fixos",
+          "tableTo": "empreendimentos",
+          "columnsFrom": [
+            "empreendimento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "gastos_fixos_valor_positivo": {
+          "name": "gastos_fixos_valor_positivo",
+          "value": "\"gastos_fixos\".\"valor_centavos\" > 0"
+        },
+        "gastos_fixos_dia_check": {
+          "name": "gastos_fixos_dia_check",
+          "value": "\"gastos_fixos\".\"dia_cobranca\" between 1 and 31"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.lancamentos": {
+      "name": "lancamentos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "lancamentos_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_centavos": {
+          "name": "valor_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data_gasto": {
+          "name": "data_gasto",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "categoria_id": {
+          "name": "categoria_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forma_pagamento_id": {
+          "name": "forma_pagamento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "empreendimento_id": {
+          "name": "empreendimento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fornecedor_id": {
+          "name": "fornecedor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campanha_id": {
+          "name": "campanha_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cartao_id": {
+          "name": "cartao_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gasto_fixo_id": {
+          "name": "gasto_fixo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codigo_identificacao": {
+          "name": "codigo_identificacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observacao": {
+          "name": "observacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "situacao": {
+          "name": "situacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ativo'"
+        },
+        "cancelado_em": {
+          "name": "cancelado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelado_por": {
+          "name": "cancelado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "motivo_cancelamento": {
+          "name": "motivo_cancelamento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_por": {
+          "name": "atualizado_por",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sienge_titulo_id": {
+          "name": "sienge_titulo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sienge_vinculo": {
+          "name": "sienge_vinculo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sienge_provas": {
+          "name": "sienge_provas",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sienge_vinculado_em": {
+          "name": "sienge_vinculado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sienge_pausado_em": {
+          "name": "sienge_pausado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "lancamentos_sienge_titulo_idx": {
+          "name": "lancamentos_sienge_titulo_idx",
+          "columns": [
+            {
+              "expression": "sienge_titulo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"lancamentos\".\"sienge_titulo_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_setor_data_idx": {
+          "name": "lancamentos_setor_data_idx",
+          "columns": [
+            {
+              "expression": "setor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "data_gasto",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_categoria_idx": {
+          "name": "lancamentos_categoria_idx",
+          "columns": [
+            {
+              "expression": "categoria_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_empreendimento_idx": {
+          "name": "lancamentos_empreendimento_idx",
+          "columns": [
+            {
+              "expression": "empreendimento_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_fornecedor_idx": {
+          "name": "lancamentos_fornecedor_idx",
+          "columns": [
+            {
+              "expression": "fornecedor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_cartao_data_idx": {
+          "name": "lancamentos_cartao_data_idx",
+          "columns": [
+            {
+              "expression": "cartao_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "data_gasto",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lancamentos_gasto_fixo_idx": {
+          "name": "lancamentos_gasto_fixo_idx",
+          "columns": [
+            {
+              "expression": "gasto_fixo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "lancamentos_setor_id_setores_id_fk": {
+          "name": "lancamentos_setor_id_setores_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_categoria_id_categorias_id_fk": {
+          "name": "lancamentos_categoria_id_categorias_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "categorias",
+          "columnsFrom": [
+            "categoria_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_forma_pagamento_id_formas_pagamento_id_fk": {
+          "name": "lancamentos_forma_pagamento_id_formas_pagamento_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "formas_pagamento",
+          "columnsFrom": [
+            "forma_pagamento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_empreendimento_id_empreendimentos_id_fk": {
+          "name": "lancamentos_empreendimento_id_empreendimentos_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "empreendimentos",
+          "columnsFrom": [
+            "empreendimento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_fornecedor_id_fornecedores_id_fk": {
+          "name": "lancamentos_fornecedor_id_fornecedores_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "fornecedores",
+          "columnsFrom": [
+            "fornecedor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_campanha_id_campanhas_id_fk": {
+          "name": "lancamentos_campanha_id_campanhas_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "campanhas",
+          "columnsFrom": [
+            "campanha_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_cartao_id_cartoes_id_fk": {
+          "name": "lancamentos_cartao_id_cartoes_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "cartoes",
+          "columnsFrom": [
+            "cartao_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_gasto_fixo_id_gastos_fixos_id_fk": {
+          "name": "lancamentos_gasto_fixo_id_gastos_fixos_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "gastos_fixos",
+          "columnsFrom": [
+            "gasto_fixo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_cancelado_por_usuarios_id_fk": {
+          "name": "lancamentos_cancelado_por_usuarios_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "cancelado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_criado_por_usuarios_id_fk": {
+          "name": "lancamentos_criado_por_usuarios_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "criado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lancamentos_atualizado_por_usuarios_id_fk": {
+          "name": "lancamentos_atualizado_por_usuarios_id_fk",
+          "tableFrom": "lancamentos",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "atualizado_por"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "lancamentos_valor_positivo": {
+          "name": "lancamentos_valor_positivo",
+          "value": "\"lancamentos\".\"valor_centavos\" > 0"
+        },
+        "lancamentos_situacao_check": {
+          "name": "lancamentos_situacao_check",
+          "value": "\"lancamentos\".\"situacao\" in ('ativo', 'cancelado')"
+        },
+        "lancamentos_cancelamento_check": {
+          "name": "lancamentos_cancelamento_check",
+          "value": "(\"lancamentos\".\"situacao\" = 'cancelado') = (\"lancamentos\".\"cancelado_em\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.parcelas": {
+      "name": "parcelas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "parcelas_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "lancamento_id": {
+          "name": "lancamento_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "numero": {
+          "name": "numero",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_centavos": {
+          "name": "valor_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vencimento": {
+          "name": "vencimento",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pago_em": {
+          "name": "pago_em",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "parcelas_lancamento_numero_idx": {
+          "name": "parcelas_lancamento_numero_idx",
+          "columns": [
+            {
+              "expression": "lancamento_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "numero",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "parcelas_em_aberto_idx": {
+          "name": "parcelas_em_aberto_idx",
+          "columns": [
+            {
+              "expression": "vencimento",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"parcelas\".\"pago_em\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "parcelas_lancamento_id_lancamentos_id_fk": {
+          "name": "parcelas_lancamento_id_lancamentos_id_fk",
+          "tableFrom": "parcelas",
+          "tableTo": "lancamentos",
+          "columnsFrom": [
+            "lancamento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "parcelas_valor_positivo": {
+          "name": "parcelas_valor_positivo",
+          "value": "\"parcelas\".\"valor_centavos\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.setores": {
+      "name": "setores",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "setores_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "sienge_centro_custo": {
+          "name": "sienge_centro_custo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "setores_nome_unique": {
+          "name": "setores_nome_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "nome"
+          ]
+        },
+        "setores_slug_unique": {
+          "name": "setores_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_apropriacoes": {
+      "name": "sienge_apropriacoes",
+      "schema": "",
+      "columns": {
+        "titulo_id": {
+          "name": "titulo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "centro_custo_id": {
+          "name": "centro_custo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plano_financeiro_id": {
+          "name": "plano_financeiro_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "percentual": {
+          "name": "percentual",
+          "type": "numeric(9, 4)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "sienge_apropriacoes_centro_idx": {
+          "name": "sienge_apropriacoes_centro_idx",
+          "columns": [
+            {
+              "expression": "centro_custo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sienge_apropriacoes_titulo_id_sienge_titulos_id_fk": {
+          "name": "sienge_apropriacoes_titulo_id_sienge_titulos_id_fk",
+          "tableFrom": "sienge_apropriacoes",
+          "tableTo": "sienge_titulos",
+          "columnsFrom": [
+            "titulo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "sienge_apropriacoes_pk": {
+          "name": "sienge_apropriacoes_pk",
+          "columns": [
+            "titulo_id",
+            "centro_custo_id",
+            "plano_financeiro_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_centros_custo": {
+      "name": "sienge_centros_custo",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_conferencias": {
+      "name": "sienge_conferencias",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "sienge_conferencias_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "origem": {
+          "name": "origem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "inicio": {
+          "name": "inicio",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "fim": {
+          "name": "fim",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "situacao": {
+          "name": "situacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'andamento'"
+        },
+        "verificados": {
+          "name": "verificados",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "vinculados": {
+          "name": "vinculados",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "pagas": {
+          "name": "pagas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "requisicoes": {
+          "name": "requisicoes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "extrato_de": {
+          "name": "extrato_de",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extrato_ate": {
+          "name": "extrato_ate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erro": {
+          "name": "erro",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "detalhe": {
+          "name": "detalhe",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "sienge_conferencias_inicio_idx": {
+          "name": "sienge_conferencias_inicio_idx",
+          "columns": [
+            {
+              "expression": "inicio",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_credores": {
+      "name": "sienge_credores",
+      "schema": "",
+      "columns": {
+        "documento": {
+          "name": "documento",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ids": {
+          "name": "ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "consultado_em": {
+          "name": "consultado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_credores_nomes": {
+      "name": "sienge_credores_nomes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nome_fantasia": {
+          "name": "nome_fantasia",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consultado_em": {
+          "name": "consultado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_meses": {
+      "name": "sienge_meses",
+      "schema": "",
+      "columns": {
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mes": {
+          "name": "mes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "buscado_em": {
+          "name": "buscado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erro": {
+          "name": "erro",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erro_em": {
+          "name": "erro_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "sienge_meses_setor_id_setores_id_fk": {
+          "name": "sienge_meses_setor_id_setores_id_fk",
+          "tableFrom": "sienge_meses",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "sienge_meses_setor_id_mes_pk": {
+          "name": "sienge_meses_setor_id_mes_pk",
+          "columns": [
+            "setor_id",
+            "mes"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_movimentos": {
+      "name": "sienge_movimentos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "titulo_id": {
+          "name": "titulo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parcela": {
+          "name": "parcela",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data": {
+          "name": "data",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_centavos": {
+          "name": "valor_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "sienge_movimentos_titulo_idx": {
+          "name": "sienge_movimentos_titulo_idx",
+          "columns": [
+            {
+              "expression": "titulo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parcela",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sienge_titulos": {
+      "name": "sienge_titulos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "emissao": {
+          "name": "emissao",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_centavos": {
+          "name": "valor_centavos",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "situacao": {
+          "name": "situacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credor_id": {
+          "name": "credor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento": {
+          "name": "documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipo_documento": {
+          "name": "tipo_documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "numero_documento": {
+          "name": "numero_documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "alterado_em": {
+          "name": "alterado_em",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apropriacao_de": {
+          "name": "apropriacao_de",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apropriacao_em": {
+          "name": "apropriacao_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sienge_titulos_emissao_idx": {
+          "name": "sienge_titulos_emissao_idx",
+          "columns": [
+            {
+              "expression": "emissao",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.usuario_setores": {
+      "name": "usuario_setores",
+      "schema": "",
+      "columns": {
+        "usuario_id": {
+          "name": "usuario_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "setor_id": {
+          "name": "setor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "usuario_setores_usuario_id_usuarios_id_fk": {
+          "name": "usuario_setores_usuario_id_usuarios_id_fk",
+          "tableFrom": "usuario_setores",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "usuario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "usuario_setores_setor_id_setores_id_fk": {
+          "name": "usuario_setores_setor_id_setores_id_fk",
+          "tableFrom": "usuario_setores",
+          "tableTo": "setores",
+          "columnsFrom": [
+            "setor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "usuario_setores_usuario_id_setor_id_pk": {
+          "name": "usuario_setores_usuario_id_setor_id_pk",
+          "columns": [
+            "usuario_id",
+            "setor_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.usuarios": {
+      "name": "usuarios",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "usuarios_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "senha_hash": {
+          "name": "senha_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "papel": {
+          "name": "papel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'leitor'"
+        },
+        "ativo": {
+          "name": "ativo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "ultimo_acesso_em": {
+          "name": "ultimo_acesso_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "usuarios_email_unique": {
+          "name": "usuarios_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "usuarios_papel_check": {
+          "name": "usuarios_papel_check",
+          "value": "\"usuarios\".\"papel\" in ('admin', 'editor', 'leitor')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

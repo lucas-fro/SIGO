@@ -4,14 +4,19 @@ Registro e acompanhamento de gastos por setor da Smart. O Marketing é o primeir
 setor: cartão, boleto, Pix e reembolso entram pelo mesmo formulário, com
 parcelas, pagamento e histórico.
 
-- **Dashboard** (`/`): gasto do mês e do ano, em aberto, gasto por mês, por categoria e por
-  empreendimento, orçamento de cada cartão e o que vence nos próximos 30 dias.
+- **Dashboard** (`/`): gasto do mês (e o mesmo mês no Sienge, ao lado) e do ano, em
+  aberto, gasto por mês, por categoria e por empreendimento, orçamento de cada cartão e o
+  que vence nos próximos 30 dias.
   O seletor no topo (ou um clique no gráfico) troca o mês, que fica na URL
   (`/?mes=AAAA-MM`); em aberto, "vence em 7 dias" e "a pagar" são sempre de hoje.
 - **Histórico** (`/historico`): todos os lançamentos, com filtros, busca,
-  exportação CSV e o detalhe num painel lateral.
-- **Cadastros**: listas do formulário e **cartões** (orçamento do mês, fatura e
-  gastos fixos, com o botão que lança os fixos do mês).
+  exportação CSV e o detalhe num painel lateral (com os comprovantes para ver e baixar).
+  O clipe marca quem tem comprovante e "Sem comprovante" mostra quem falta.
+- **Novo lançamento**: o comprovante (PDF, JPG ou PNG) sobe primeiro e, com a chave da
+  IA configurada, é lido e preenche o formulário; a pessoa confere e salva.
+- **Cadastros**: listas do formulário, **cartões** (orçamento do mês, fatura e
+  gastos fixos, com o botão que lança os fixos do mês) e, para o admin, **Leitura por
+  IA** (a API, o modelo e a chave que leem os comprovantes; OpenAI por padrão).
 
 | Camada | Tecnologia |
 | --- | --- |
@@ -29,6 +34,9 @@ backend/
   src/cadastros/     listas (categorias, formas, empreendimentos, campanhas, fornecedores) e cartões
   src/lancamentos/   lançamentos, parcelas, histórico, indicadores, lançar gastos fixos
   src/painel/        dados do dashboard (categorias, empreendimentos, cartões, a pagar)
+  src/anexos/        comprovantes (disco, ver/baixar) e leitura por IA (OpenAI ou Claude)
+  src/configuracoes/ configuração da leitura por IA feita pelo admin (chave cifrada no banco)
+  src/sienge/        cópia dos títulos do Sienge e conferência de pagamentos
   drizzle/           migrations geradas (SQL)
 frontend/
   app/pages/         dashboard (index), historico, lancamentos/novo, editar, cadastros, login
@@ -101,6 +109,46 @@ Entre com o e-mail e a senha de `ADMIN_EMAIL`/`ADMIN_PASSWORD` do `backend/.env`
   (repetir não duplica).
 - **Permissão = papel + setor.** `admin` vê e altera tudo; `editor` lança nos
   setores dele; `leitor` só consulta. Setor novo é uma linha em `setores`.
+- **Sienge (só leitura).** O quadro "No Sienge em <mês>" soma os títulos a pagar
+  emitidos no mês que caem nos centros de custo do setor: os que têm no nome o trecho de
+  `setores.sienge_centro_custo` ("MARKETING" pega os "<EMPREENDIMENTO> - MARKETING").
+  Título rateado entra só com o percentual desses centros; "em inclusão" fica de fora; no
+  mês corrente, vai até hoje, como o gasto do SIGO. O SIGO guarda uma cópia (`sienge_*`)
+  e só busca o Sienge quando alguém olha um mês cuja cópia venceu (30 min para o mês
+  corrente e o anterior, um dia para os outros), em segundo plano e dentro do teto
+  `SIENGE_RATE_LIMIT_PER_MINUTE`, porque o limite do Sienge é dividido com o Painel
+  Sienge. A primeira leitura de um mês faz uma requisição por título (a apropriação).
+- **Conferência de pagamentos com o Sienge** (00h e 12h de São Paulo, ou "Conferir
+  agora" no Histórico, só admin). Olha os lançamentos ativos com parcela em aberto, fora
+  do cartão (compra no cartão é paga pela fatura). Primeiro casa com o título a pagar,
+  por provas: CNPJ/CPF ou nome do fornecedor, número da nota, valor (ou até 15% menor,
+  por imposto retido, com o mesmo número), vencimento, quantidade de parcelas, emissão
+  perto da data do gasto e empreendimento (o centro de custo "<EMPREENDIMENTO> -
+  MARKETING" do nome dele). Número, valor ou empreendimento que se contradizem vetam o
+  título. Com CNPJ, os candidatos são os títulos do credor numa janela de emissão; sem
+  CNPJ, os títulos do setor na cópia do Sienge. Casa quando um conjunto de provas fortes
+  fecha e nenhum outro título empata no número, no empreendimento, no vencimento exato e
+  no centro de custo do setor: a mesma agência emite notas de mesmo valor e dia, uma por
+  empreendimento. Título que ainda não está na cópia não perde nem é vetado por falta de
+  informação. Empate, ou dois lançamentos querendo o mesmo título, não casa (aparece
+  como pendência). O vínculo e as provas ficam em `lancamentos.sienge_titulo_id` e
+  `sienge_provas`; editar fornecedor, valor, código, parcelas, empreendimento, data do
+  gasto ou setor solta o vínculo e o lançamento volta a ser procurado. Depois, parcela "Totalmente paga" lá é
+  paga aqui, com a data do extrato de contas (`/accounts-statements`). Sem pagamento no
+  extrato já lido, a baixa pode ter sido sem dinheiro (substituição, renegociação): não
+  marca e aparece como pendência; só marca, com o vencimento de lá como data aproximada,
+  quando venceu antes do período já lido do extrato. Quem assina no histórico é o
+  usuário "Sienge (automático)", que não entra no sistema. Se uma pessoa desfaz um
+  pagamento que a conferência marcou (no detalhe ou na edição), a conferência daquele
+  lançamento fica pausada. Lançamento cancelado solta o título. A edição manda a versão
+  que abriu: se a conferência mudou o lançamento nesse meio tempo, o salvar é recusado
+  em vez de desfazer o pagamento.
+- **Comprovantes.** Ficam em `COMPROVANTES_DIR` (no servidor, `dados/comprovantes` do
+  projeto), com nome gerado; o banco guarda nome original, tipo e hash (o mesmo arquivo
+  em dois lançamentos gera aviso). O tipo é conferido pelo conteúdo, não pela extensão.
+  Ver e baixar passam pela API, que confere o setor. Rascunho (arquivo enviado e
+  lançamento não salvo) some depois de um dia; comprovante de lançamento só sai da lista,
+  com registro no histórico.
 
 ## Deploy
 

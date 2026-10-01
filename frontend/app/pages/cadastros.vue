@@ -31,11 +31,16 @@ const LISTAS = [
   { valor: 'empreendimentos', rotulo: 'Empreendimentos', singular: 'empreendimento' },
   { valor: 'campanhas', rotulo: 'Campanhas', singular: 'campanha' },
   { valor: 'fornecedores', rotulo: 'Fornecedores', singular: 'fornecedor' },
+  { valor: 'leitura-ia', rotulo: 'Leitura por IA', singular: 'configuração' },
 ] as const
 type Lista = (typeof LISTAS)[number]['valor']
 
+/** A configuração da leitura por IA é só do admin (a API também confere). */
+const listasVisiveis = computed(() =>
+  LISTAS.filter((l) => l.valor !== 'leitura-ia' || isAdmin.value),
+)
 const lista = computed<Lista>(
-  () => LISTAS.find((l) => l.valor === route.query.lista)?.valor ?? 'categorias',
+  () => listasVisiveis.value.find((l) => l.valor === route.query.lista)?.valor ?? 'categorias',
 )
 const info = computed(() => LISTAS.find((l) => l.valor === lista.value)!)
 const mostrarExcluidos = ref(false)
@@ -76,6 +81,7 @@ const linhasTodas = computed<Linha[]>(() => {
     case 'fornecedores':
       return fornecedores.value ?? []
     case 'cartoes':
+    case 'leitura-ia':
       return []
   }
 })
@@ -249,7 +255,7 @@ async function alternarExclusao(linha: Linha) {
     <div class="px-5 sm:px-6">
       <div class="tabs" role="tablist" aria-label="Listas">
         <button
-          v-for="l in LISTAS"
+          v-for="l in listasVisiveis"
           :key="l.valor"
           type="button"
           role="tab"
@@ -263,6 +269,7 @@ async function alternarExclusao(linha: Linha) {
     </div>
 
     <CartoesCadastro v-if="lista === 'cartoes'" />
+    <LeituraIaCadastro v-else-if="lista === 'leitura-ia'" />
 
     <template v-else>
       <!-- novo item -->

@@ -1,25 +1,44 @@
 <script setup lang="ts">
-import { Ban, CalendarCheck, Loader2, Pencil, Undo2 } from 'lucide-vue-next'
 import {
+  Ban,
+  CalendarCheck,
+  Download,
+  FileText,
+  Image as ImagemIcone,
+  Loader2,
+  Paperclip,
+  Pencil,
+  Trash2,
+  Undo2,
+} from 'lucide-vue-next'
+import {
+  EXTENSOES_ANEXO,
+  ROTULO_PROVA_SIENGE,
+  TAMANHO_MAXIMO_ANEXO,
   cancelarLancamentoSchema,
   formatarDocumento,
   hoje,
   type Alteracao,
+  type Anexo,
+  type AnexoEnviado,
   type Evento,
   type LancamentoDetalhe,
   type Parcela,
   type ParcelaInput,
+  type ProvaSienge,
   type SituacaoPagamento,
+  type VinculoLancamentoSienge,
 } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
-import { data, dataHora, reais } from '~/composables/useFormat'
+import { data, dataHora, reais, tamanhoArquivo } from '~/composables/useFormat'
 import { useSincronizarLancamento } from '~/composables/useLancamentos'
 import { useToast } from '~/composables/useToast'
 
 /*
   Conteúdo do detalhe de um lançamento: o mesmo no painel lateral da lista e
   na página própria. As ações (pagar, editar, cancelar) atualizam o cache na
-  hora com o que a API devolve.
+  hora com o que a API devolve. Os comprovantes (boleto, nota, recibo) ficam
+  numa aba própria, com ver, baixar, anexar e tirar da lista.
 */
 const props = defineProps<{ lancamento: LancamentoDetalhe }>()
 
@@ -29,11 +48,39 @@ const sincronizar = useSincronizarLancamento()
 const toast = useToast()
 
 const l = computed(() => props.lancamento)
+
+/** Ordem de leitura das provas: as que identificam o documento primeiro. */
+const ORDEM_PROVAS: ProvaSienge[] = [
+  'numero',
+  'fornecedor',
+  'nomeFornecedor',
+  'valor',
+  'retencao',
+  'vencimento',
+  'vencimentoProximo',
+  'empreendimento',
+  'parcelas',
+  'emissao',
+]
+
+/** "achado por número da nota, CNPJ/CPF do fornecedor e valor". O centro de custo do setor fica de fora: todo título do setor tem. */
+function comoAchado(s: VinculoLancamentoSienge): string {
+  if (!s.provas) {
+    return s.vinculo === 'numero'
+      ? 'achado pelo número do documento'
+      : 'achado por valor e vencimento'
+  }
+  const itens = ORDEM_PROVAS.filter((p) => s.provas!.includes(p)).map((p) => ROTULO_PROVA_SIENGE[p])
+  const lista =
+    itens.length > 1 ? `${itens.slice(0, -1).join(', ')} e ${itens.at(-1)}` : (itens[0] ?? '')
+  return `achado por ${lista}`
+}
+
 const ativo = computed(() => l.value.situacao === 'ativo')
 const podeAlterar = computed(() => canEdit.value && ativo.value)
 const emAberto = computed(() => l.value.parcelas.filter((p) => !p.pagoEm))
 
-type Aba = 'detalhes' | 'parcelas' | 'historico'
+type Aba = 'detalhes' | 'parcelas' | 'comprovantes' | 'historico'
 const aba = ref<Aba>('detalhes')
 watch(
   () => props.lancamento.id,
@@ -150,6 +197,70 @@ async function cancelar() {
   }
 }
 
+// ---------- comprovantes ----------
+
+const vendo = ref<Anexo | null>(null)
+const seletor = ref<HTMLInputElement | null>(null)
+const enviando = ref(false)
+const removendo = ref<Anexo | null>(null)
+
+function escolherArquivo() {
+  seletor.value?.click()
+}
+
+/** Recarrega o detalhe depois de mexer nos comprovantes (a lista e o histórico mudam juntos). */
+async function recarregar() {
+  sincronizar(await api.get<LancamentoDetalhe>(`/lancamentos/${l.value.id}`))
+}
+
+async function aoEscolherArquivo(evento: Event) {
+  const campo = evento.target as HTMLInputElement
+  const arquivo = campo.files?.[0]
+  campo.value = ''
+  if (!arquivo) return
+  if (arquivo.size > TAMANHO_MAXIMO_ANEXO) {
+    toast.erro('O arquivo passa de 15 MB')
+    return
+  }
+  const dados = new FormData()
+  dados.append('arquivo', arquivo)
+  dados.append('lancamentoId', String(l.value.id))
+  enviando.value = true
+  try {
+    const enviado = await api.enviar<AnexoEnviado>('/anexos', dados)
+    await recarregar()
+    if (enviado.duplicadoDe) {
+      toast.erro(
+        `Este arquivo também é comprovante do lançamento #${enviado.duplicadoDe.lancamentoId}`,
+      )
+    } else {
+      toast.sucesso('Comprovante anexado')
+    }
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    toast.erro(e.message)
+  } finally {
+    enviando.value = false
+  }
+}
+
+async function removerComprovante() {
+  const alvo = removendo.value
+  if (!alvo) return
+  salvando.value = true
+  try {
+    await api.delete(`/anexos/${alvo.id}`)
+    await recarregar()
+    removendo.value = null
+    toast.sucesso('Comprovante tirado da lista')
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    toast.erro(e.message)
+  } finally {
+    salvando.value = false
+  }
+}
+
 // ---------- histórico ----------
 
 function frase(e: Evento): string {
@@ -163,9 +274,15 @@ function frase(e: Evento): string {
     case 'cancelado':
       return 'cancelou o lançamento'
     case 'pagamento_registrado':
-      return `registrou o pagamento da parcela ${e.dados?.parcela ?? ''} em ${data(e.dados?.pagoEm)}`
+      return e.dados?.origem === 'sienge'
+        ? `conferiu no Sienge o pagamento da parcela ${e.dados?.parcela ?? ''}, feito em ${data(e.dados?.pagoEm)}${e.dados?.dataAproximada ? ' (data aproximada: a baixa não apareceu no extrato)' : ''}${e.dados?.tituloSienge ? `, título ${e.dados.tituloSienge}` : ''}`
+        : `registrou o pagamento da parcela ${e.dados?.parcela ?? ''} em ${data(e.dados?.pagoEm)}`
     case 'pagamento_desfeito':
       return `desfez o pagamento da parcela ${e.dados?.parcela ?? ''}`
+    case 'anexo_adicionado':
+      return `anexou o comprovante ${e.dados?.anexo ?? ''}`
+    case 'anexo_removido':
+      return `tirou da lista o comprovante ${e.dados?.anexo ?? ''}`
   }
 }
 
@@ -263,6 +380,15 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
           type="button"
           role="tab"
           class="tab"
+          :aria-selected="aba === 'comprovantes'"
+          @click="aba = 'comprovantes'"
+        >
+          Comprovantes <span class="count">{{ l.anexos.length }}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab"
           :aria-selected="aba === 'historico'"
           @click="aba = 'historico'"
         >
@@ -300,6 +426,16 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
       <div>
         <dt class="eyebrow">Código de identificação</dt>
         <dd class="mt-1 break-all text-ink">{{ l.codigoIdentificacao ?? '—' }}</dd>
+      </div>
+      <div v-if="l.sienge">
+        <dt class="eyebrow">Título no Sienge</dt>
+        <dd class="tnum mt-1 text-ink">
+          {{ l.sienge.tituloId }}
+          <span class="block text-[12px] text-faint">{{ comoAchado(l.sienge) }}</span>
+          <span v-if="l.sienge.pausadoEm" class="block text-[12px] text-faint">
+            conferência automática pausada: um pagamento marcado pelo Sienge foi desfeito à mão
+          </span>
+        </dd>
       </div>
       <div>
         <dt class="eyebrow">Setor</dt>
@@ -356,6 +492,73 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
         </template>
       </li>
     </ul>
+
+    <!-- comprovantes -->
+    <div v-else-if="aba === 'comprovantes'" class="py-1">
+      <div v-if="podeAlterar" class="flex flex-wrap items-center gap-2 px-5 pt-4 pb-2">
+        <input
+          ref="seletor"
+          type="file"
+          class="hidden"
+          :accept="EXTENSOES_ANEXO"
+          @change="aoEscolherArquivo"
+        />
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="enviando"
+          @click="escolherArquivo"
+        >
+          <Loader2 v-if="enviando" :size="14" class="animate-spin" />
+          <Paperclip v-else :size="14" />
+          Anexar comprovante
+        </button>
+        <span class="text-[12px] text-faint">PDF, JPG ou PNG, até 15 MB</span>
+      </div>
+
+      <p v-if="!l.anexos.length" class="px-5 py-6 text-[13px] text-muted">
+        Nenhum comprovante. Anexe o boleto, a nota ou o recibo deste gasto.
+      </p>
+      <ul v-else class="divide-y divide-line-soft">
+        <li v-for="a in l.anexos" :key="a.id" class="flex items-center gap-3 px-5 py-3">
+          <FileText v-if="a.tipo === 'application/pdf'" :size="18" class="shrink-0 text-faint" />
+          <ImagemIcone v-else :size="18" class="shrink-0 text-faint" />
+          <div class="min-w-0 flex-1">
+            <button
+              type="button"
+              class="block max-w-full truncate text-left text-[13.5px] font-medium text-ink hover:underline"
+              :title="a.nome"
+              @click="vendo = a"
+            >
+              {{ a.nome }}
+            </button>
+            <div class="text-[12px] text-faint">
+              {{ tamanhoArquivo(a.tamanho) }} · {{ a.enviadoPor.nome }}, {{ dataHora(a.enviadoEm) }}
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" @click="vendo = a">Ver</button>
+          <a
+            :href="api.url(`/anexos/${a.id}/arquivo?baixar=1`)"
+            class="btn-icon"
+            title="Baixar"
+            :aria-label="`Baixar ${a.nome}`"
+            download
+          >
+            <Download :size="15" />
+          </a>
+          <button
+            v-if="podeAlterar"
+            type="button"
+            class="btn-icon"
+            title="Tirar da lista"
+            :aria-label="`Tirar ${a.nome} da lista`"
+            @click="removendo = a"
+          >
+            <Trash2 :size="15" />
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <!-- histórico -->
     <ol v-else class="flex flex-col px-5 py-5">
@@ -435,6 +638,28 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
         <button type="submit" form="form-pagamento" class="btn btn-primary" :disabled="salvando">
           <Loader2 v-if="salvando" :size="15" class="animate-spin" />
           Registrar pagamento
+        </button>
+      </template>
+    </ModalDialog>
+
+    <VisualizadorComprovante :anexo="vendo" @fechar="vendo = null" />
+
+    <ModalDialog
+      :open="!!removendo"
+      titulo="Tirar o comprovante da lista?"
+      :descricao="`${removendo?.nome ?? ''} deixa de aparecer neste lançamento. O arquivo continua guardado e a remoção fica no histórico.`"
+      @fechar="removendo = null"
+    >
+      <template #rodape>
+        <button type="button" class="btn btn-secondary" @click="removendo = null">Voltar</button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          :disabled="salvando"
+          @click="removerComprovante"
+        >
+          <Loader2 v-if="salvando" :size="15" class="animate-spin" />
+          Tirar da lista
         </button>
       </template>
     </ModalDialog>

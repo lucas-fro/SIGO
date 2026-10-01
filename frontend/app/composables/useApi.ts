@@ -87,19 +87,31 @@ function useRequester() {
 /** Chamadas avulsas (gravar, cancelar...), fora do cache do TanStack. Capture no setup e use nas ações. */
 export function useApi() {
   const request = useRequester()
+  const { apiBase } = useRuntimeConfig().public
   return {
     get: <T>(path: string, params: QueryParams = {}) => request<T>(path, { query: clean(params) }),
     post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
     put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
     patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
+    delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+    /** Envio de arquivo: o navegador monta o multipart (e o boundary) a partir do FormData. */
+    enviar: <T>(path: string, dados: FormData) => request<T>(path, { method: 'POST', body: dados }),
+    /**
+     * Endereço completo de uma rota, para `<a href>`, `<img>` e `<iframe>`: o
+     * cookie de sessão vai junto (mesma origem em produção, mesmo site no
+     * desenvolvimento), sem precisar baixar o arquivo por JavaScript.
+     */
+    url: (path: string) => `${apiBase}${path}`,
   }
 }
 
-export interface QueryOptions {
+export interface QueryOptions<T = unknown> {
   /** Segura a busca enquanto a condição for falsa. */
   enabled?: MaybeRefOrGetter<boolean>
   /** Mantém o resultado anterior na tela enquanto o novo carrega (listas com filtro). */
   keepPrevious?: boolean
+  /** Refaz a busca a cada tantos ms enquanto a função devolver um número (ex.: trabalho em andamento no servidor). */
+  refetchInterval?: (dados: T | undefined) => number | false
 }
 
 /**
@@ -110,7 +122,7 @@ export function useApiQuery<T>(
   key: string,
   path: MaybeRefOrGetter<string>,
   params: MaybeRefOrGetter<QueryParams> = {},
-  options: QueryOptions = {},
+  options: QueryOptions<T> = {},
 ): UseQueryReturnType<T, ApiError> {
   const request = useRequester()
 
@@ -123,5 +135,8 @@ export function useApiQuery<T>(
     queryFn: () => request<T>(resolvedPath.value, { query: resolvedParams.value }),
     enabled,
     ...(options.keepPrevious ? { placeholderData: keepPreviousData } : {}),
+    ...(options.refetchInterval
+      ? { refetchInterval: (query) => options.refetchInterval!(query.state.data) }
+      : {}),
   })
 }

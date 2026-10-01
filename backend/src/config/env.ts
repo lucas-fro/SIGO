@@ -8,6 +8,12 @@ import { z } from 'zod'
 */
 if (existsSync('.env')) process.loadEnvFile('.env')
 
+/** `VAR=` no arquivo chega como texto vazio: para o que é opcional, vale como não informada. */
+const vazioComoAusente = z
+  .string()
+  .optional()
+  .transform((v) => v?.trim() || undefined)
+
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   /**
@@ -38,6 +44,46 @@ const schema = z.object({
   HOST: z.string().default('0.0.0.0'),
   /** Origens liberadas no CORS, separadas por vírgula. */
   CORS_ORIGIN: z.string().default('http://localhost:3040'),
+
+  /*
+    API do Sienge (títulos a pagar), para comparar o gasto do setor com o que
+    foi lançado lá. Opcional: sem as três, o dashboard mostra o quadro do Sienge
+    como não configurado e nada é chamado.
+  */
+  SIENGE_SUBDOMAIN: vazioComoAusente,
+  SIENGE_USER: vazioComoAusente,
+  SIENGE_PASSWORD: vazioComoAusente,
+  /**
+   * Teto de requisições por minuto deste sistema. O limite do Sienge (200/min)
+   * vale para o subdomínio inteiro e é dividido com o Painel Sienge, que usa até 150.
+   */
+  SIENGE_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(40),
+  /**
+   * Horários (São Paulo) em que as parcelas em aberto são conferidas no Sienge
+   * e marcadas como pagas. Vazio desliga a conferência automática.
+   */
+  SIENGE_CONFERENCIA_HORARIOS: z
+    .string()
+    .default('00:00,12:00')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((h) => h.trim())
+        .filter(Boolean),
+    )
+    .pipe(
+      z.array(
+        z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, {
+          error: 'use horários HH:MM separados por vírgula',
+        }),
+      ),
+    ),
+
+  /**
+   * Pasta dos comprovantes. Relativa ao diretório do backend; no container é
+   * `/app/dados/comprovantes`, montada como volume (ver DEPLOY.md).
+   */
+  COMPROVANTES_DIR: z.string().default('dados/comprovantes'),
 })
 
 const parsed = schema.safeParse(process.env)

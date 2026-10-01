@@ -119,3 +119,10 @@ export function dataHora(value: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
+
+/** Tamanho de arquivo: "820 KB", "1,4 MB". */
+export function tamanhoArquivo(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`
+}

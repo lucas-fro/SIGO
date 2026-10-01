@@ -33,6 +33,36 @@ dos comentários: português do Brasil.
   vira lançamento por `POST /lancamentos/lancar-fixos` (idempotente por mês, com advisory lock).
 - Campanha é detalhe secundário: fica no formulário, no detalhe (quando informada) e na
   exportação, não em filtros, colunas ou gráficos.
+- Sienge (só leitura, `src/sienge/`): o limite de 200 req/min é do subdomínio e dividido
+  com o Painel Sienge. Nenhuma rota chama o Sienge no caminho da requisição: o
+  `SiengeService` lê a cópia `sienge_*` e agenda busca em segundo plano quando ela vence.
+  Gasto do setor = título a pagar emitido no mês, pela parte apropriada aos centros de
+  custo cujo nome contém `setores.sienge_centro_custo`. As tabelas `sienge_*` são cache
+  (podem ser apagadas), a exceção ao "nada é apagado".
+- Conferência de pagamentos (`sienge/conferencia.service.ts`, regras puras em
+  `casamento.ts`): na dúvida não casa e não marca (marcar pago errado é pior que não
+  marcar); sem pagamento no extrato lido, não marca (pode ser baixa sem dinheiro).
+  O casamento é por provas: vetos (número de nota, valor ou empreendimento que se
+  contradizem), uma âncora de provas fortes e desempate só por número, empreendimento,
+  vencimento exato e centro do setor; empate é ambíguo. Com CNPJ, os candidatos são os
+  títulos do credor; sem CNPJ, os da cópia do setor, pelo nome do fornecedor e pela nota.
+  A mesma agência emite notas iguais por empreendimento: não afrouxe âncora nem desempate.
+  Evento automático é do usuário `sienge@sigo.interno` (seed, inativo). Desfazer pagamento
+  marcado pelo Sienge pausa o lançamento (`sienge_pausado_em`); editar o que serve de
+  prova (fornecedor, valor, código, parcelas, empreendimento, data do gasto, setor) solta
+  o vínculo. Informação que falta (título fora da cópia) nunca desempata nem veta. Falha de um fornecedor ou título vai para
+  `detalhe.falhas` e a rodada segue. Nada que roda em segundo plano pode lançar promessa
+  rejeitada sem `catch`: isso derruba a API.
+- Comprovantes (`src/anexos/`): arquivo em `COMPROVANTES_DIR` com nome gerado; tipo pelo
+  conteúdo (`tipoPeloConteudo`); ver/baixar só pela API conferindo o setor. Rascunho (sem
+  lançamento) é de quem enviou e some em 24 h; comprovante de lançamento sai só da lista
+  (`removidoEm`) e o arquivo fica. A leitura por IA só sugere: `montarLeitura` confere
+  tudo e nada é gravado no lançamento sem a pessoa salvar. Leitores: `leitor-openai.ts` e
+  `leitor-claude.ts`, com instruções e esquema comuns em `instrucoes-leitura.ts`.
+- Configuração da IA (`src/configuracoes/`, só admin): API, modelo e chave são cadastrados
+  na tela (Cadastros → Leitura por IA), nunca no `.env`. A chave vai cifrada para a tabela
+  `configuracoes` (`config/cofre.ts`), é conferida na API antes de salvar e nunca volta
+  inteira para a tela nem vai para o log.
 - Migrations: nunca editar SQL já aplicado; gerar outra com `db:generate`. Manter
   compatível com Postgres 16 (produção).
 - `src/db/schema.ts` só importa valores de `drizzle-orm`; dos contratos, apenas `import type`

@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-vue-next'
 import { fornecedorSchema, formatarDocumento, type Fornecedor } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 
-const props = defineProps<{ open: boolean; nomeInicial?: string }>()
+const props = defineProps<{ open: boolean; nomeInicial?: string; documentoInicial?: string }>()
 const emit = defineEmits<{ fechar: []; criado: [Fornecedor] }>()
 
 const api = useApi()
@@ -23,7 +23,8 @@ watch(
   (aberto) => {
     if (!aberto) return
     nome.value = props.nomeInicial ?? ''
-    documento.value = ''
+    // Vindo da leitura de um comprovante, o CNPJ já chega preenchido.
+    documento.value = props.documentoInicial ? formatarDocumento(props.documentoInicial) : ''
     erros.value = {}
     erroGeral.value = null
     existente.value = null

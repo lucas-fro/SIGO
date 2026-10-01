@@ -16,6 +16,7 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { alias, type PgTable } from 'drizzle-orm/pg-core'
+import { AnexosService } from '../anexos/anexos.service.js'
 import { enxergaSetor, escopoDeSetor, exigirEdicaoNoSetor } from '../common/acesso.js'
 import { erroDeValidacao } from '../common/validacao.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
@@ -53,6 +54,7 @@ import { situacaoPagamento } from '../contracts/parcelas.js'
 import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
 import {
+  anexos,
   campanhas,
   cartoes,
   categorias,
@@ -100,6 +102,10 @@ function resumoParcelas(db: Database, hojeIso: string) {
 }
 type Resumo = ReturnType<typeof resumoParcelas>
 
+/** Comprovantes do lançamento que continuam na lista (os removidos não contam). */
+const qtdAnexos = sql<number>`(select count(*) from ${anexos} where ${anexos.lancamentoId} = ${lancamentos.id} and ${anexos.removidoEm} is null)::int`
+const temAnexo = sql`exists (select 1 from ${anexos} where ${anexos.lancamentoId} = ${lancamentos.id} and ${anexos.removidoEm} is null)`
+
 /** Colunas da lista, com os nomes dos cadastros já resolvidos. */
 function camposResumo(resumo: Resumo) {
   return {
@@ -130,6 +136,7 @@ function camposResumo(resumo: Resumo) {
     parcelasVencidas: resumo.vencidas,
     proximoVencimento: resumo.proximoVencimento,
     emAbertoCentavos: resumo.emAbertoCentavos,
+    anexos: qtdAnexos,
   }
 }
 
@@ -161,6 +168,7 @@ interface LinhaResumo {
   parcelasVencidas: number
   proximoVencimento: string | null
   emAbertoCentavos: string | number
+  anexos: number
 }
 
 /** Data vinda de agregação em SQL: o driver pode entregar texto ou Date, a API sempre devolve "AAAA-MM-DD". */
@@ -210,6 +218,7 @@ function paraResumo(r: LinhaResumo): LancamentoResumo {
       proximoVencimento: comoData(r.proximoVencimento),
       emAbertoCentavos: Number(r.emAbertoCentavos),
     },
+    anexos: Number(r.anexos),
     criadoEm: r.criadoEm.toISOString(),
   }
 }
@@ -233,6 +242,8 @@ interface Atual {
   codigoIdentificacao: string | null
   observacao: string | null
   situacao: SituacaoLancamento
+  atualizadoEm: Date | null
+  siengeTituloId: number | null
   parcelas: ParcelaInput[]
 }
 
@@ -264,7 +275,10 @@ const chaveParcelas = (lista: ParcelaInput[]): string =>
 
 @Injectable()
 export class LancamentosService {
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly comprovantes: AnexosService,
+  ) {}
 
   async listar(usuario: UsuarioSessao, filtros: FiltrosLancamentos): Promise<ListaLancamentos> {
     const resumo = resumoParcelas(this.db, hoje())
@@ -324,6 +338,11 @@ export class LancamentosService {
         motivoCancelamento: lancamentos.motivoCancelamento,
         canceladoPorId: cancelador.id,
         canceladoPorNome: cancelador.nome,
+        siengeTituloId: lancamentos.siengeTituloId,
+        siengeVinculo: lancamentos.siengeVinculo,
+        siengeProvas: lancamentos.siengeProvas,
+        siengeVinculadoEm: lancamentos.siengeVinculadoEm,
+        siengePausadoEm: lancamentos.siengePausadoEm,
       })
       .from(lancamentos)
       .innerJoin(setores, eq(setores.id, lancamentos.setorId))
@@ -344,7 +363,7 @@ export class LancamentosService {
       throw new NotFoundException('Lançamento não encontrado')
     }
 
-    const [listaParcelas, listaEventos] = await Promise.all([
+    const [listaParcelas, listaEventos, listaAnexos] = await Promise.all([
       this.db
         .select({
           id: parcelas.id,
@@ -369,6 +388,7 @@ export class LancamentosService {
         .innerJoin(usuarios, eq(usuarios.id, eventos.usuarioId))
         .where(eq(eventos.lancamentoId, id))
         .orderBy(desc(eventos.em), desc(eventos.id)),
+      this.comprovantes.doLancamento(id),
     ])
 
     const cancelamento =
@@ -384,6 +404,17 @@ export class LancamentosService {
       ...paraResumo(linha),
       observacao: linha.observacao,
       parcelas: listaParcelas,
+      anexos: listaAnexos,
+      sienge:
+        linha.siengeTituloId !== null && linha.siengeVinculo && linha.siengeVinculadoEm
+          ? {
+              tituloId: linha.siengeTituloId,
+              vinculo: linha.siengeVinculo,
+              provas: linha.siengeProvas ?? null,
+              vinculadoEm: linha.siengeVinculadoEm.toISOString(),
+              pausadoEm: linha.siengePausadoEm?.toISOString() ?? null,
+            }
+          : null,
       eventos: listaEventos.map((e) => ({
         id: e.id,
         tipo: e.tipo,
@@ -438,6 +469,8 @@ export class LancamentosService {
         .insert(parcelas)
         .values(entrada.parcelas.map((p, i) => ({ lancamentoId, numero: i + 1, ...p })))
       await tx.insert(eventos).values({ lancamentoId, tipo: 'criado', usuarioId: usuario.id })
+      // Os comprovantes enviados no formulário passam a ser deste lançamento (fazem parte da criação).
+      await this.comprovantes.vincular(tx, usuario, lancamentoId, entrada.anexoIds)
       return lancamentoId
     })
 
@@ -459,12 +492,57 @@ export class LancamentosService {
     if (atual.situacao === 'cancelado') {
       throw new ConflictException('Lançamento cancelado não pode ser editado')
     }
+    // O formulário abriu uma versão e alguém (ou a conferência com o Sienge) mudou o
+    // lançamento depois: salvar agora desfaria a mudança sem a pessoa saber.
+    if (
+      entrada.versao !== undefined &&
+      entrada.versao !== (atual.atualizadoEm?.toISOString() ?? null)
+    ) {
+      throw new ConflictException(
+        'Este lançamento mudou desde que a edição foi aberta (por exemplo, um pagamento conferido no Sienge). Recarregue a página para editar a versão atual.',
+      )
+    }
 
     await this.validarEntrada(entrada, atual)
     const alteracoes = await this.alteracoes(atual, entrada)
-    if (!alteracoes.length) return this.detalhar(usuario, id)
+    if (!alteracoes.length && !entrada.anexoIds.length) return this.detalhar(usuario, id)
 
     await this.db.transaction(async (tx) => {
+      const ligados = await this.comprovantes.vincular(tx, usuario, id, entrada.anexoIds)
+      if (ligados.length) {
+        await tx.insert(eventos).values(
+          ligados.map((a) => ({
+            lancamentoId: id,
+            tipo: 'anexo_adicionado' as const,
+            usuarioId: usuario.id,
+            dados: { anexo: a.nome },
+          })),
+        )
+      }
+      if (!alteracoes.length) return
+
+      const campos = new Set(alteracoes.map((a) => a.campo))
+      // O vínculo com o Sienge foi achado com o que serve de prova (fornecedor, valor,
+      // código, parcelas, empreendimento, data do gasto e setor): se algo disso mudou, ele
+      // sai (e a pausa junto) e o lançamento volta a ser procurado.
+      const soltaSienge =
+        atual.siengeTituloId !== null &&
+        [
+          'fornecedorId',
+          'valorCentavos',
+          'codigoIdentificacao',
+          'parcelas',
+          'empreendimentoId',
+          'dataGasto',
+          'setorId',
+        ].some((c) => campos.has(c))
+      // Tirou pela edição um pagamento que a conferência tinha marcado: pausa a conferência.
+      const pausaSienge =
+        !soltaSienge &&
+        atual.siengeTituloId !== null &&
+        atual.parcelas.some((p, i) => p.pagoEm && !entrada.parcelas[i]?.pagoEm) &&
+        (await this.teveMarcacaoDoSienge(id))
+
       await tx
         .update(lancamentos)
         .set({
@@ -482,6 +560,16 @@ export class LancamentosService {
           observacao: entrada.observacao,
           atualizadoPor: usuario.id,
           atualizadoEm: new Date(),
+          ...(soltaSienge
+            ? {
+                siengeTituloId: null,
+                siengeVinculo: null,
+                siengeProvas: null,
+                siengeVinculadoEm: null,
+                siengePausadoEm: null,
+              }
+            : {}),
+          ...(pausaSienge ? { siengePausadoEm: new Date() } : {}),
         })
         .where(eq(lancamentos.id, id))
 
@@ -523,6 +611,12 @@ export class LancamentosService {
           motivoCancelamento: motivo,
           atualizadoPor: usuario.id,
           atualizadoEm: agora,
+          // O título do Sienge fica livre para o lançamento certo (um título serve a um lançamento só).
+          siengeTituloId: null,
+          siengeVinculo: null,
+          siengeProvas: null,
+          siengeVinculadoEm: null,
+          siengePausadoEm: null,
         })
         .where(and(eq(lancamentos.id, id), eq(lancamentos.situacao, 'ativo')))
         .returning({ id: lancamentos.id })
@@ -565,11 +659,19 @@ export class LancamentosService {
     }
     if (linha.pagoEm === pagoEm) return this.detalhar(usuario, lancamentoId)
 
+    // Desfazer um pagamento que a conferência com o Sienge marcou pausa a conferência deste
+    // lançamento: a pessoa decidiu, e às 00h/12h ele não pode voltar sozinho.
+    const pausaSienge = !pagoEm && (await this.marcadaPeloSienge(lancamentoId, linha.numero))
+
     await this.db.transaction(async (tx) => {
       await tx.update(parcelas).set({ pagoEm }).where(eq(parcelas.id, parcelaId))
       await tx
         .update(lancamentos)
-        .set({ atualizadoPor: usuario.id, atualizadoEm: new Date() })
+        .set({
+          atualizadoPor: usuario.id,
+          atualizadoEm: new Date(),
+          ...(pausaSienge ? { siengePausadoEm: new Date() } : {}),
+        })
         .where(eq(lancamentos.id, lancamentoId))
       await tx.insert(eventos).values({
         lancamentoId,
@@ -580,6 +682,39 @@ export class LancamentosService {
     })
 
     return this.detalhar(usuario, lancamentoId)
+  }
+
+  /** O último pagamento registrado desta parcela foi o da conferência com o Sienge. */
+  private async marcadaPeloSienge(lancamentoId: number, numero: number): Promise<boolean> {
+    const [ultimo] = await this.db
+      .select({ dados: eventos.dados })
+      .from(eventos)
+      .where(
+        and(
+          eq(eventos.lancamentoId, lancamentoId),
+          eq(eventos.tipo, 'pagamento_registrado'),
+          sql`(${eventos.dados} ->> 'parcela')::int = ${numero}`,
+        ),
+      )
+      .orderBy(desc(eventos.em), desc(eventos.id))
+      .limit(1)
+    return ultimo?.dados?.origem === 'sienge'
+  }
+
+  /** Algum pagamento deste lançamento foi marcado pela conferência com o Sienge. */
+  private async teveMarcacaoDoSienge(lancamentoId: number): Promise<boolean> {
+    const [algum] = await this.db
+      .select({ id: eventos.id })
+      .from(eventos)
+      .where(
+        and(
+          eq(eventos.lancamentoId, lancamentoId),
+          eq(eventos.tipo, 'pagamento_registrado'),
+          sql`${eventos.dados} ->> 'origem' = 'sienge'`,
+        ),
+      )
+      .limit(1)
+    return !!algum
   }
 
   /** Quais gastos fixos do cartão já têm lançamento ativo no mês (para a tela avisar antes). */
@@ -819,6 +954,8 @@ export class LancamentosService {
     if (f.fornecedorId) condicoes.push(eq(lancamentos.fornecedorId, f.fornecedorId))
     if (f.campanhaId) condicoes.push(eq(lancamentos.campanhaId, f.campanhaId))
     if (f.cartaoId) condicoes.push(eq(lancamentos.cartaoId, f.cartaoId))
+    if (f.comprovante === 'com') condicoes.push(temAnexo)
+    if (f.comprovante === 'sem') condicoes.push(sql`not ${temAnexo}`)
     if (f.situacao !== 'todos') condicoes.push(eq(lancamentos.situacao, f.situacao))
 
     if (f.pagamento === 'pago') condicoes.push(sql`${resumo.pagas} = ${resumo.quantidade}`)
@@ -1012,6 +1149,8 @@ export class LancamentosService {
         codigoIdentificacao: lancamentos.codigoIdentificacao,
         observacao: lancamentos.observacao,
         situacao: lancamentos.situacao,
+        atualizadoEm: lancamentos.atualizadoEm,
+        siengeTituloId: lancamentos.siengeTituloId,
       })
       .from(lancamentos)
       .where(eq(lancamentos.id, id))

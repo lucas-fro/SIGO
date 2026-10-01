@@ -32,6 +32,7 @@ const COLUNAS: Array<[titulo: string, valor: (l: LancamentoResumo) => string | n
     (l) => (l.pagamento.proximoVencimento ? data(l.pagamento.proximoVencimento) : ''),
   ],
   ['Em aberto (R$)', (l) => numero(l.pagamento.emAbertoCentavos)],
+  ['Comprovantes', (l) => l.anexos],
 ]
 
 /**

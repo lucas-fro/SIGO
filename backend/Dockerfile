@@ -36,8 +36,12 @@ COPY package.json ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # O repositório é editado no Windows: um CRLF sobrando quebra o shebang.
+# A pasta dos comprovantes existe na imagem, do usuário `node`. No compose ela é
+# montada do disco da VPS (bind mount), que precisa ser do uid 1000: ver DEPLOY.md.
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
-    && chmod +x /usr/local/bin/docker-entrypoint.sh
+    && chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /app/dados/comprovantes \
+    && chown -R node:node /app/dados
 
 USER node
 EXPOSE 3340

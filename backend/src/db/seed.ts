@@ -1,7 +1,12 @@
-import { count, eq } from 'drizzle-orm'
+import { and, count, eq, isNull } from 'drizzle-orm'
 import { env } from '../config/env.js'
 import { conectar } from './client.js'
-import { categorias, empreendimentos, formasPagamento, setores } from './schema.js'
+import {
+  EMAIL_USUARIO_SIENGE,
+  NOME_USUARIO_SIENGE,
+  SENHA_IMPOSSIVEL,
+} from '../sienge/usuario-sistema.js'
+import { categorias, empreendimentos, formasPagamento, setores, usuarios } from './schema.js'
 
 /*
   Listas iniciais. São um ponto de partida para o Marketing revisar, não a
@@ -41,7 +46,28 @@ const { db, pool } = conectar(env.DATABASE_URL)
 
 try {
   await db.transaction(async (tx) => {
-    await tx.insert(setores).values({ nome: 'Marketing', slug: 'marketing' }).onConflictDoNothing()
+    // Usuário que assina o que a conferência com o Sienge faz sozinha (não entra no sistema).
+    await tx
+      .insert(usuarios)
+      .values({
+        nome: NOME_USUARIO_SIENGE,
+        email: EMAIL_USUARIO_SIENGE,
+        senhaHash: SENHA_IMPOSSIVEL,
+        papel: 'leitor',
+        ativo: false,
+      })
+      .onConflictDoNothing()
+
+    await tx
+      .insert(setores)
+      .values({ nome: 'Marketing', slug: 'marketing', siengeCentroCusto: 'MARKETING' })
+      .onConflictDoNothing()
+    // No Sienge, o gasto do Marketing cai nos centros de custo "<EMPREENDIMENTO> - MARKETING".
+    // Só preenche quando vazio: um ajuste feito depois não é desfeito na próxima subida.
+    await tx
+      .update(setores)
+      .set({ siengeCentroCusto: 'MARKETING' })
+      .where(and(eq(setores.slug, 'marketing'), isNull(setores.siengeCentroCusto)))
     const [marketing] = await tx
       .select({ id: setores.id })
       .from(setores)

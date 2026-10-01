@@ -16,6 +16,10 @@ services:
       PORT: "3340"
     networks:
       - web
+    volumes:
+      # Comprovantes (PDF e fotos): pasta do projeto na VPS, fora da imagem. Entra no backup!
+      # Dono uid 1000 (usuário `node` do container): `mkdir -p dados/comprovantes && chown -R 1000:1000 dados`.
+      - ./dados/comprovantes:/app/dados/comprovantes
     healthcheck:
       # /health faz um `select 1`, então cobre API e banco de uma vez.
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3340/health || exit 1"]

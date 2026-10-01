@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -14,7 +15,16 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 // Só tipos: o drizzle-kit carrega este arquivo sozinho e não resolve importação de valor daqui.
+import type { TipoAnexo } from '../contracts/anexos.js'
 import type { Papel } from '../contracts/auth.js'
+import type { RegistroLeitura } from '../contracts/leitura.js'
+import type {
+  DetalheConferencia,
+  OrigemConferencia,
+  SituacaoConferencia,
+  ProvaSienge,
+  VinculoSienge,
+} from '../contracts/sienge.js'
 import type { DadosEvento, SituacaoLancamento, TipoEvento } from '../contracts/lancamentos.js'
 
 /*
@@ -58,6 +68,11 @@ export const setores = pgTable('setores', {
   nome: text('nome').notNull().unique(),
   slug: text('slug').notNull().unique(),
   ativo: boolean('ativo').notNull().default(true),
+  /**
+   * Trecho do nome dos centros de custo do Sienge que são deste setor (no
+   * Marketing, "MARKETING"). Vazio: o setor não é comparado com o Sienge.
+   */
+  siengeCentroCusto: text('sienge_centro_custo'),
   criadoEm: criadoEm(),
 })
 
@@ -254,8 +269,28 @@ export const lancamentos = pgTable(
     criadoEm: criadoEm(),
     atualizadoPor: integer('atualizado_por').references(() => usuarios.id),
     atualizadoEm: timestamp('atualizado_em', { withTimezone: true }),
+    /**
+     * Título a pagar do Sienge que corresponde a este gasto, achado pela
+     * conferência de pagamentos (sem FK: é id de outro sistema). Um título
+     * serve a um lançamento só.
+     */
+    siengeTituloId: integer('sienge_titulo_id'),
+    /** Como o título foi achado: pelo número do documento ou por valor e vencimento. */
+    siengeVinculo: text('sienge_vinculo').$type<VinculoSienge>(),
+    /** O que bateu entre o lançamento e o título (casamento.ts); null nos vínculos antigos. */
+    siengeProvas: jsonb('sienge_provas').$type<ProvaSienge[]>(),
+    siengeVinculadoEm: timestamp('sienge_vinculado_em', { withTimezone: true }),
+    /**
+     * Uma pessoa desfez um pagamento que a conferência tinha marcado: a partir
+     * daí a conferência não marca mais nada neste lançamento (solto o vínculo,
+     * a pausa sai junto).
+     */
+    siengePausadoEm: timestamp('sienge_pausado_em', { withTimezone: true }),
   },
   (t) => [
+    uniqueIndex('lancamentos_sienge_titulo_idx')
+      .on(t.siengeTituloId)
+      .where(sql`${t.siengeTituloId} is not null`),
     check('lancamentos_valor_positivo', sql`${t.valorCentavos} > 0`),
     check('lancamentos_situacao_check', sql`${t.situacao} in ('ativo', 'cancelado')`),
     /* Cancelado sem data ou data sem cancelamento é estado impossível: o banco recusa. */
@@ -316,3 +351,185 @@ export const eventos = pgTable(
   },
   (t) => [index('eventos_lancamento_idx').on(t.lancamentoId, t.em)],
 )
+
+/**
+ * Comprovante (PDF ou foto) de um lançamento. O arquivo fica na pasta
+ * COMPROVANTES_DIR; aqui fica o registro. Sem lançamento, é um rascunho de
+ * quem enviou (subiu no "Novo lançamento" e ainda não foi salvo). Comprovante
+ * de lançamento não se apaga: sai da lista com `removidoEm`, e o arquivo fica.
+ */
+export const anexos = pgTable(
+  'anexos',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    lancamentoId: integer('lancamento_id').references(() => lancamentos.id),
+    nome: text('nome').notNull(),
+    tipo: text('tipo').$type<TipoAnexo>().notNull(),
+    tamanho: integer('tamanho').notNull(),
+    /** Impressão digital do conteúdo: o mesmo arquivo em dois lançamentos gera aviso. */
+    sha256: text('sha256').notNull(),
+    /** Relativo à pasta dos comprovantes ("2026/09/<uuid>.pdf"). */
+    caminho: text('caminho').notNull().unique(),
+    enviadoPor: integer('enviado_por')
+      .notNull()
+      .references(() => usuarios.id),
+    enviadoEm: timestamp('enviado_em', { withTimezone: true }).notNull().defaultNow(),
+    removidoEm: timestamp('removido_em', { withTimezone: true }),
+    removidoPor: integer('removido_por').references(() => usuarios.id),
+    /** O que a IA leu do documento (para conferência), quando ele foi lido. */
+    leitura: jsonb('leitura').$type<RegistroLeitura>(),
+  },
+  (t) => [
+    index('anexos_lancamento_idx').on(t.lancamentoId),
+    index('anexos_sha256_idx').on(t.sha256),
+    check('anexos_tipo_check', sql`${t.tipo} in ('application/pdf', 'image/jpeg', 'image/png')`),
+  ],
+)
+
+/*
+  Cópia local do que o SIGO lê do Sienge: os títulos a pagar dos centros de
+  custo de algum setor. Ao contrário do resto do banco, isto é cache e pode ser
+  apagado; a próxima busca refaz. Os ids são os do Sienge.
+*/
+
+/** Centros de custo do Sienge, para achar os de cada setor pelo nome. */
+export const siengeCentrosCusto = pgTable('sienge_centros_custo', {
+  id: integer('id').primaryKey(),
+  nome: text('nome').notNull(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Título a pagar do Sienge. */
+export const siengeTitulos = pgTable(
+  'sienge_titulos',
+  {
+    id: integer('id').primaryKey(),
+    emissao: dia('emissao').notNull(),
+    valorCentavos: centavos('valor_centavos').notNull(),
+    /** Consistência no Sienge: S completo, N incompleto, I em inclusão. */
+    situacao: text('situacao'),
+    credorId: integer('credor_id'),
+    /** Tipo e número juntos, para leitura ("NFSE 00002684"). */
+    documento: text('documento'),
+    /** `documentIdentificationId` ("NFSE", "BOL"...). */
+    tipoDocumento: text('tipo_documento'),
+    /** `documentNumber` como veio ("00002684", ou texto livre). */
+    numeroDocumento: text('numero_documento'),
+    /** O `changedDate` como a API devolve: quando muda, a apropriação é buscada de novo. */
+    alteradoEm: text('alterado_em'),
+    /** O `alteradoEm` do título quando a apropriação foi buscada. */
+    apropriacaoDe: text('apropriacao_de'),
+    /** Quando a apropriação foi buscada; null = ainda não foi. */
+    apropriacaoEm: timestamp('apropriacao_em', { withTimezone: true }),
+    atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('sienge_titulos_emissao_idx').on(t.emissao)],
+)
+
+/** Apropriação do título por centro de custo e plano financeiro, em percentual do valor. */
+export const siengeApropriacoes = pgTable(
+  'sienge_apropriacoes',
+  {
+    tituloId: integer('titulo_id')
+      .notNull()
+      .references(() => siengeTitulos.id, { onDelete: 'cascade' }),
+    centroCustoId: integer('centro_custo_id').notNull(),
+    planoFinanceiroId: text('plano_financeiro_id').notNull(),
+    percentual: numeric('percentual', { precision: 9, scale: 4 }).notNull(),
+  },
+  (t) => [
+    // Nome curto: o gerado passaria dos 63 caracteres que o Postgres guarda.
+    primaryKey({
+      name: 'sienge_apropriacoes_pk',
+      columns: [t.tituloId, t.centroCustoId, t.planoFinanceiroId],
+    }),
+    index('sienge_apropriacoes_centro_idx').on(t.centroCustoId),
+  ],
+)
+
+/** Quando cada mês de cada setor foi buscado no Sienge: é o prazo da cópia. */
+export const siengeMeses = pgTable(
+  'sienge_meses',
+  {
+    setorId: integer('setor_id')
+      .notNull()
+      .references(() => setores.id),
+    /** "AAAA-MM". */
+    mes: text('mes').notNull(),
+    buscadoEm: timestamp('buscado_em', { withTimezone: true }),
+    erro: text('erro'),
+    erroEm: timestamp('erro_em', { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.setorId, t.mes] })],
+)
+
+/** Credores do Sienge por CNPJ/CPF (um documento pode ter mais de um cadastro lá). */
+export const siengeCredores = pgTable('sienge_credores', {
+  documento: text('documento').primaryKey(),
+  ids: jsonb('ids').$type<number[]>().notNull(),
+  consultadoEm: timestamp('consultado_em', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/**
+ * Nome de cada credor do Sienge (`/creditors/{id}`), para comparar com o nome
+ * do fornecedor quando o lançamento não tem CNPJ/CPF.
+ */
+export const siengeCredoresNomes = pgTable('sienge_credores_nomes', {
+  id: integer('id').primaryKey(),
+  nome: text('nome'),
+  nomeFantasia: text('nome_fantasia'),
+  consultadoEm: timestamp('consultado_em', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/**
+ * Pagamentos do extrato de contas do Sienge (`/accounts-statements`, contas a
+ * pagar). É daqui que sai a data em que cada parcela foi paga.
+ */
+export const siengeMovimentos = pgTable(
+  'sienge_movimentos',
+  {
+    id: integer('id').primaryKey(),
+    tituloId: integer('titulo_id').notNull(),
+    parcela: integer('parcela').notNull(),
+    data: dia('data').notNull(),
+    valorCentavos: centavos('valor_centavos').notNull(),
+  },
+  (t) => [index('sienge_movimentos_titulo_idx').on(t.tituloId, t.parcela)],
+)
+
+/** Cada conferência de pagamentos com o Sienge: quando rodou e o que fez. */
+export const siengeConferencias = pgTable(
+  'sienge_conferencias',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    origem: text('origem').$type<OrigemConferencia>().notNull(),
+    inicio: timestamp('inicio', { withTimezone: true }).notNull().defaultNow(),
+    fim: timestamp('fim', { withTimezone: true }),
+    situacao: text('situacao').$type<SituacaoConferencia>().notNull().default('andamento'),
+    /** Lançamentos em aberto olhados. */
+    verificados: integer('verificados').notNull().default(0),
+    /** Lançamentos que ganharam título do Sienge nesta rodada. */
+    vinculados: integer('vinculados').notNull().default(0),
+    /** Parcelas marcadas como pagas. */
+    pagas: integer('pagas').notNull().default(0),
+    requisicoes: integer('requisicoes').notNull().default(0),
+    /** Período do extrato de contas lido nesta rodada (quando foi lido). */
+    extratoDe: dia('extrato_de'),
+    extratoAte: dia('extrato_ate'),
+    erro: text('erro'),
+    detalhe: jsonb('detalhe').$type<DetalheConferencia>(),
+  },
+  (t) => [index('sienge_conferencias_inicio_idx').on(t.inicio)],
+)
+
+/**
+ * Configurações alteradas pela tela, uma linha por assunto (`chave`). Hoje só
+ * `leitura_ia`: a API, o modelo e a chave da leitura de comprovantes, com a
+ * chave cifrada (config/cofre.ts).
+ */
+export const configuracoes = pgTable('configuracoes', {
+  chave: text('chave').primaryKey(),
+  valor: jsonb('valor').$type<Record<string, unknown>>().notNull(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoPor: integer('atualizado_por').references(() => usuarios.id),
+})

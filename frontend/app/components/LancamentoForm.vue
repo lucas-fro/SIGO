@@ -1,20 +1,35 @@
 <script setup lang="ts">
-import { CircleAlert, Loader2, TriangleAlert } from 'lucide-vue-next'
 import {
+  CircleAlert,
+  FileText,
+  Image as ImagemIcone,
+  Loader2,
+  ScanText,
+  TriangleAlert,
+  Upload,
+  X,
+} from 'lucide-vue-next'
+import {
+  EXTENSOES_ANEXO,
+  ROTULO_DOCUMENTO_LIDO,
+  TAMANHO_MAXIMO_ANEXO,
   criarLancamentoSchema,
+  formatarDocumento,
   gerarParcelas,
   hoje,
   lancamentoSchema,
   somarMeses,
   vencimentoDaFatura,
+  type AnexoEnviado,
   type Fornecedor,
   type LancamentoDetalhe,
+  type LeituraDocumento,
   type PossivelDuplicado,
   type RespostaDuplicidade,
 } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 import { opcoesAtivas, useCadastros, useFornecedores } from '~/composables/useCadastros'
-import { data, reais } from '~/composables/useFormat'
+import { data, reais, tamanhoArquivo } from '~/composables/useFormat'
 import { useSincronizarLancamento } from '~/composables/useLancamentos'
 
 /*
@@ -27,12 +42,17 @@ import { useSincronizarLancamento } from '~/composables/useLancamentos'
   A validação roda duas vezes com o mesmo esquema: aqui, antes de enviar,
   para apontar o campo na hora; e na API, que é quem manda. O erro que vier de
   lá (cadastro desativado, pagamento no futuro) cai no mesmo lugar do campo.
+
+  No lançamento novo, o comprovante (boleto, nota, recibo) sobe primeiro e é
+  lido por IA: o que ela entendeu preenche o formulário, os campos preenchidos
+  ganham a marca "do arquivo" e a pessoa confere antes de salvar. Ao salvar,
+  o arquivo passa a ser comprovante do lançamento.
 */
 const props = defineProps<{ inicial?: LancamentoDetalhe | null }>()
 const emit = defineEmits<{ salvo: [LancamentoDetalhe]; cancelar: [] }>()
 
 const editando = computed(() => !!props.inicial)
-const { user } = useAuth()
+const { user, isAdmin } = useAuth()
 const { data: cadastros } = useCadastros()
 const { data: fornecedores } = useFornecedores()
 const api = useApi()
@@ -92,10 +112,19 @@ function preencher(l: LancamentoDetalhe) {
   }))
 }
 
+/**
+ * Preenche uma vez por lançamento. O detalhe é buscado de novo ao voltar para
+ * a aba, e preencher de novo apagaria o que a pessoa está editando; mudança
+ * feita por outro lado (a conferência com o Sienge) é recusada no salvar, pela versão.
+ */
+const preenchidoDe = ref<number | null>(null)
 watch(
   () => props.inicial,
   (l) => {
-    if (l) preencher(l)
+    if (l && preenchidoDe.value !== l.id) {
+      preencher(l)
+      preenchidoDe.value = l.id
+    }
   },
   { immediate: true },
 )
@@ -270,15 +299,237 @@ const textoParcelas = computed(() => {
 
 const modalFornecedor = ref(false)
 const nomeFornecedor = ref('')
+const documentoFornecedor = ref<string | undefined>(undefined)
 
-function abrirNovoFornecedor(nomeSugerido: string) {
+function abrirNovoFornecedor(nomeSugerido: string, documento?: string | null) {
   nomeFornecedor.value = nomeSugerido
+  documentoFornecedor.value = documento ?? undefined
   modalFornecedor.value = true
+}
+
+function cadastrarFornecedorLido() {
+  const novo = leitura.value?.fornecedorNovo
+  if (novo) abrirNovoFornecedor(novo.nome, novo.documento)
 }
 
 function aoCriarFornecedor(fornecedor: Fornecedor) {
   form.fornecedorId = fornecedor.id
   modalFornecedor.value = false
+  if (leitura.value?.fornecedorNovo) leitura.value.fornecedorNovo = null
+}
+
+// ---------- comprovante e leitura ----------
+
+const comprovantes = ref<AnexoEnviado[]>([])
+const seletorArquivo = ref<HTMLInputElement | null>(null)
+const arrastando = ref(false)
+const enviandoArquivo = ref(false)
+/** Comprovante sendo lido agora (id), para o aviso "Lendo…". */
+const lendo = ref<number | null>(null)
+const erroArquivo = ref<string | null>(null)
+/** Se o servidor tem a leitura por IA ligada (vem na resposta do envio). */
+const leituraLigada = ref<boolean | null>(null)
+/** O que a última leitura trouxe além dos campos: tipo, avisos e fornecedor a cadastrar. */
+const leitura = ref<{
+  anexoId: number
+  tipo: LeituraDocumento['tipoDocumento']
+  avisos: string[]
+  fornecedorNovo: LeituraDocumento['fornecedorNovo']
+} | null>(null)
+/** Campos preenchidos pela leitura (ganham a marca "do arquivo"). */
+const lidos = ref(new Set<string>())
+const vendo = ref<AnexoEnviado | null>(null)
+
+const formularioEmBranco = computed(() => !form.descricao.trim() && !form.valorCentavos)
+const lido = (campo: string) => lidos.value.has(campo)
+
+function escolherArquivo() {
+  seletorArquivo.value?.click()
+}
+
+function aoEscolherArquivo(evento: Event) {
+  const campo = evento.target as HTMLInputElement
+  const arquivo = campo.files?.[0]
+  campo.value = ''
+  if (arquivo) void enviarArquivo(arquivo)
+}
+
+function aoArrastar(evento: DragEvent) {
+  evento.preventDefault()
+  arrastando.value = true
+}
+
+function aoSairDoArraste() {
+  arrastando.value = false
+}
+
+function aoSoltarArquivo(evento: DragEvent) {
+  evento.preventDefault()
+  arrastando.value = false
+  const arquivo = evento.dataTransfer?.files?.[0]
+  if (arquivo) void enviarArquivo(arquivo)
+}
+
+/** Enviando ou lendo um arquivo: salvar agora deixaria o comprovante de fora. */
+const ocupadoComArquivo = computed(() => enviandoArquivo.value || lendo.value !== null)
+/** O contrato aceita até 10 comprovantes por lançamento. */
+const MAXIMO_COMPROVANTES = 10
+
+async function enviarArquivo(arquivo: File) {
+  if (ocupadoComArquivo.value || salvando.value) {
+    erroArquivo.value = 'Espere o arquivo anterior terminar de subir e ser lido.'
+    return
+  }
+  if (comprovantes.value.length >= MAXIMO_COMPROVANTES) {
+    erroArquivo.value = `Cada lançamento aceita até ${MAXIMO_COMPROVANTES} comprovantes.`
+    return
+  }
+  erroArquivo.value = null
+  if (arquivo.size > TAMANHO_MAXIMO_ANEXO) {
+    erroArquivo.value = 'O arquivo passa de 15 MB.'
+    return
+  }
+  const dados = new FormData()
+  dados.append('arquivo', arquivo)
+  enviandoArquivo.value = true
+  try {
+    const enviado = await api.enviar<AnexoEnviado>('/anexos', dados)
+    comprovantes.value.push(enviado)
+    leituraLigada.value = enviado.leituraDisponivel
+    // Lê sozinho enquanto o formulário está em branco; depois, só se a pessoa pedir.
+    if (enviado.leituraDisponivel && formularioEmBranco.value) await lerComprovante(enviado)
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    erroArquivo.value = e.message
+  } finally {
+    enviandoArquivo.value = false
+  }
+}
+
+async function lerComprovante(anexo: AnexoEnviado) {
+  if (!form.setorId) return
+  erroArquivo.value = null
+  lendo.value = anexo.id
+  try {
+    const resultado = await api.post<LeituraDocumento>(`/anexos/${anexo.id}/ler`, {
+      setorId: form.setorId,
+    })
+    aplicarLeitura(resultado, anexo.id)
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    erroArquivo.value = `${e.message} O arquivo continua anexado.`
+  } finally {
+    lendo.value = null
+  }
+}
+
+/**
+ * Preenche o formulário com a leitura. A ordem importa: a data do gasto e a
+ * forma de pagamento vêm antes das parcelas, porque o vencimento sugerido
+ * depende delas (a fatura do cartão, por exemplo).
+ */
+function aplicarLeitura(l: LeituraDocumento, anexoId: number) {
+  // A pessoa tirou o arquivo enquanto ele era lido: a leitura não vale mais.
+  if (!comprovantes.value.some((c) => c.id === anexoId)) return
+  const campos = new Set<string>()
+  const marca = (campo: string) => campos.add(campo)
+
+  if (l.descricao) {
+    form.descricao = l.descricao
+    marca('descricao')
+  }
+  if (l.codigoIdentificacao) {
+    form.codigoIdentificacao = l.codigoIdentificacao
+    marca('codigo')
+  }
+  if (l.observacao) {
+    form.observacao = l.observacao
+    marca('observacao')
+  }
+  // Emissão no futuro não serve como data do gasto: fica a de hoje.
+  if (l.dataGasto && l.dataGasto <= hoje()) {
+    form.dataGasto = l.dataGasto
+    marca('dataGasto')
+  }
+  // Fornecedor desativado a API recusa numa escolha nova: nesse caso fica em branco (e há aviso).
+  const fornecedor = l.fornecedor && fornecedores.value?.find((f) => f.id === l.fornecedor!.id)
+  if (fornecedor?.ativo) {
+    form.fornecedorId = fornecedor.id
+    marca('fornecedor')
+  }
+  if (l.categoriaId && categorias.value.some((c) => c.id === l.categoriaId)) {
+    form.categoriaId = l.categoriaId
+    marca('categoria')
+  }
+  if (l.empreendimentoId && empreendimentos.value.some((e) => e.id === l.empreendimentoId)) {
+    form.empreendimentoId = l.empreendimentoId
+    marca('empreendimento')
+  }
+  if (l.formaPagamentoId && formas.value.some((f) => f.id === l.formaPagamentoId)) {
+    form.formaPagamentoId = l.formaPagamentoId
+    aoMudarForma()
+    marca('forma')
+  }
+
+  const somaLida = l.parcelas.reduce((t, p) => t + p.valorCentavos, 0)
+  const total = l.valorCentavos ?? (somaLida || null)
+  if (l.parcelas.length > 1 && total && somaLida === total) {
+    // Parcelas lidas que fecham com o total entram como estão, uma a uma.
+    form.valorCentavos = total
+    quantidade.value = l.parcelas.length
+    primeiroVencimento.value = l.parcelas[0]!.vencimento
+    vencimentoTocado.value = true
+    parcelas.value = l.parcelas.map((p) => ({ ...p, pagoEm: null }))
+    marca('valor')
+    marca('vencimento')
+  } else {
+    quantidade.value = 1
+    if (l.parcelas[0]) {
+      primeiroVencimento.value = l.parcelas[0].vencimento
+      vencimentoTocado.value = true
+      marca('vencimento')
+    } else if (!vencimentoTocado.value && vencimentoSugerido.value) {
+      primeiroVencimento.value = vencimentoSugerido.value
+    }
+    if (total) {
+      aoMudarTotal(total)
+      marca('valor')
+    } else {
+      regenerar()
+    }
+  }
+
+  // Comprovante de pagamento: a parcela já nasce paga, na data do comprovante.
+  const primeira = parcelas.value[0]
+  if (l.pagoEm && parcelas.value.length === 1 && primeira) {
+    primeira.pagoEm = l.pagoEm <= hoje() ? l.pagoEm : hoje()
+    marca('pago')
+  }
+
+  lidos.value = campos
+  leitura.value = {
+    anexoId,
+    tipo: l.tipoDocumento,
+    avisos: l.avisos,
+    fornecedorNovo: l.fornecedorNovo,
+  }
+  erros.value = {}
+  duplicados.value = null
+}
+
+async function tirarComprovante(anexo: AnexoEnviado) {
+  // Ainda é rascunho: sai de vez (arquivo e registro). O que já foi preenchido fica.
+  try {
+    await api.delete(`/anexos/${anexo.id}`)
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e
+    if (e.status !== 404) {
+      erroArquivo.value = e.message
+      return
+    }
+  }
+  comprovantes.value = comprovantes.value.filter((c) => c.id !== anexo.id)
+  if (leitura.value?.anexoId === anexo.id) leitura.value = null
 }
 
 // ---------- gravar ----------
@@ -296,6 +547,7 @@ async function focarPrimeiroErro() {
 }
 
 async function salvar(confirmarDuplicidade = false) {
+  if (ocupadoComArquivo.value || salvando.value) return
   erroGeral.value = null
   const payload = {
     ...form,
@@ -306,7 +558,9 @@ async function salvar(confirmarDuplicidade = false) {
       vencimento: p.vencimento || form.dataGasto || hoje(),
       pagoEm: p.pagoEm || null,
     })),
-    ...(editando.value ? {} : { confirmarDuplicidade }),
+    ...(editando.value
+      ? { versao: props.inicial!.atualizadoEm }
+      : { confirmarDuplicidade, anexoIds: comprovantes.value.map((c) => c.id) }),
   }
 
   const resultado = (editando.value ? lancamentoSchema : criarLancamentoSchema).safeParse(payload)
@@ -327,6 +581,7 @@ async function salvar(confirmarDuplicidade = false) {
       ? await api.put<LancamentoDetalhe>(`/lancamentos/${props.inicial!.id}`, resultado.data)
       : await api.post<LancamentoDetalhe>('/lancamentos', resultado.data)
     duplicados.value = null
+    comprovantes.value = []
     sincronizar(detalhe)
     emit('salvo', detalhe)
   } catch (e) {
@@ -354,6 +609,166 @@ async function salvar(confirmarDuplicidade = false) {
     @submit.prevent="salvar()"
   >
     <div class="flex min-w-0 flex-col gap-5">
+      <!-- Comprovante: sobe primeiro e, com a leitura ligada, preenche o formulário. -->
+      <section v-if="!editando" class="card">
+        <header class="border-b border-line px-5 py-3.5">
+          <h2 class="text-[14px] font-semibold text-ink">Comprovante</h2>
+          <p class="hint">
+            Envie o boleto, a nota ou o recibo: o SIGO lê o arquivo e preenche o formulário, e o
+            arquivo fica guardado no lançamento. Confira os campos antes de salvar.
+          </p>
+        </header>
+        <div class="flex flex-col gap-3 p-5">
+          <input
+            ref="seletorArquivo"
+            type="file"
+            class="hidden"
+            :accept="EXTENSOES_ANEXO"
+            @change="aoEscolherArquivo"
+          />
+          <div
+            class="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-lg border border-dashed px-4 py-5 text-center text-[13px] text-muted transition-colors"
+            :class="
+              arrastando ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface-alt'
+            "
+            @dragover="aoArrastar"
+            @dragleave="aoSairDoArraste"
+            @drop="aoSoltarArquivo"
+          >
+            <Upload :size="16" class="text-faint" />
+            <span class="max-sm:hidden">Arraste o arquivo aqui ou</span>
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="ocupadoComArquivo || comprovantes.length >= MAXIMO_COMPROVANTES"
+              @click="escolherArquivo"
+            >
+              <Loader2 v-if="enviandoArquivo" :size="14" class="animate-spin" />
+              Escolher arquivo
+            </button>
+            <span class="w-full text-[12px] text-faint">PDF, JPG ou PNG, até 15 MB</span>
+          </div>
+
+          <ul v-if="comprovantes.length" class="flex flex-col divide-y divide-line-soft">
+            <li v-for="c in comprovantes" :key="c.id" class="flex items-center gap-3 py-2.5">
+              <FileText
+                v-if="c.tipo === 'application/pdf'"
+                :size="17"
+                class="shrink-0 text-faint"
+              />
+              <ImagemIcone v-else :size="17" class="shrink-0 text-faint" />
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-[13px] font-medium text-ink" :title="c.nome">
+                  {{ c.nome }}
+                </div>
+                <div class="text-[12px] text-faint">
+                  {{ tamanhoArquivo(c.tamanho) }}
+                  <template v-if="lendo === c.id"> · lendo o documento…</template>
+                  <template v-else-if="leitura?.anexoId === c.id">
+                    · formulário preenchido a partir deste arquivo</template
+                  >
+                </div>
+              </div>
+              <Loader2 v-if="lendo === c.id" :size="15" class="shrink-0 animate-spin text-faint" />
+              <button
+                v-else-if="c.leituraDisponivel && leitura?.anexoId !== c.id"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="lendo !== null"
+                @click="lerComprovante(c)"
+              >
+                <ScanText :size="14" /> Ler e preencher
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" @click="vendo = c">Ver</button>
+              <button
+                type="button"
+                class="btn-icon"
+                title="Tirar este arquivo"
+                :aria-label="`Tirar ${c.nome}`"
+                :disabled="lendo === c.id || salvando"
+                @click="tirarComprovante(c)"
+              >
+                <X :size="15" />
+              </button>
+            </li>
+          </ul>
+
+          <p
+            v-for="c in comprovantes.filter((x) => x.duplicadoDe)"
+            :key="`dup-${c.id}`"
+            class="flex items-start gap-1.5 text-[12.5px] text-ink"
+          >
+            <TriangleAlert :size="14" class="mt-0.5 shrink-0 text-warn" />
+            <span>
+              Este arquivo já é comprovante do lançamento
+              <NuxtLink
+                :to="`/lancamentos/${c.duplicadoDe!.lancamentoId}`"
+                target="_blank"
+                class="font-medium text-accent-text hover:underline"
+                >#{{ c.duplicadoDe!.lancamentoId }}</NuxtLink
+              >: {{ c.duplicadoDe!.descricao }}. Confira se não é o mesmo gasto.
+            </span>
+          </p>
+
+          <p v-if="leituraLigada === false" class="text-[12.5px] text-muted">
+            A leitura automática está desligada: o arquivo fica só como comprovante.
+            {{ isAdmin ? 'Ligue em Cadastros → Leitura por IA.' : 'Quem liga é o administrador.' }}
+          </p>
+
+          <p
+            v-if="erro('anexoIds')"
+            class="flex items-start gap-1.5 text-[12.5px] text-neg"
+            role="alert"
+          >
+            <CircleAlert :size="14" class="mt-0.5 shrink-0" /> {{ erro('anexoIds') }}
+          </p>
+
+          <p
+            v-if="erroArquivo"
+            class="flex items-start gap-1.5 text-[12.5px] text-neg"
+            role="alert"
+          >
+            <CircleAlert :size="14" class="mt-0.5 shrink-0" /> {{ erroArquivo }}
+          </p>
+
+          <div
+            v-if="leitura"
+            class="flex flex-col gap-2 rounded-lg border border-line-soft bg-surface-alt px-3.5 py-3 text-[12.5px]"
+          >
+            <p class="text-ink">
+              Lido como {{ ROTULO_DOCUMENTO_LIDO[leitura.tipo] }}. Os campos com a marca
+              <span class="text-faint">“do arquivo”</span> vieram da leitura: confira antes de
+              salvar.
+            </p>
+            <div v-if="leitura.fornecedorNovo" class="flex flex-wrap items-center gap-2">
+              <span class="text-muted">
+                Fornecedor fora do cadastro:
+                <span class="text-ink">{{ leitura.fornecedorNovo.nome }}</span>
+                <template v-if="leitura.fornecedorNovo.documento">
+                  · {{ formatarDocumento(leitura.fornecedorNovo.documento) }}</template
+                >
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                @click="cadastrarFornecedorLido"
+              >
+                Cadastrar
+              </button>
+            </div>
+            <ul v-if="leitura.avisos.length" class="flex flex-col gap-1">
+              <li
+                v-for="(a, i) in leitura.avisos"
+                :key="i"
+                class="flex items-start gap-1.5 text-ink"
+              >
+                <TriangleAlert :size="14" class="mt-0.5 shrink-0 text-warn" /> {{ a }}
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <!-- O gasto -->
       <section class="card">
         <header class="border-b border-line px-5 py-3.5">
@@ -366,6 +781,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Descrição"
             para="f-descricao"
+            :lido="lido('descricao')"
             :erro="erro('descricao')"
             class="sm:col-span-2"
           >
@@ -379,7 +795,12 @@ async function salvar(confirmarDuplicidade = false) {
             />
           </FormField>
 
-          <FormField rotulo="Valor total" para="f-valor" :erro="erro('valorCentavos')">
+          <FormField
+            rotulo="Valor total"
+            para="f-valor"
+            :lido="lido('valor')"
+            :erro="erro('valorCentavos')"
+          >
             <MoneyInput
               id="f-valor"
               :model-value="form.valorCentavos"
@@ -391,6 +812,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Data do gasto"
             para="f-data"
+            :lido="lido('dataGasto')"
             :erro="erro('dataGasto')"
             dica="Define o mês em que o gasto entra nos totais. Em branco, vale hoje."
           >
@@ -407,8 +829,9 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Fornecedor"
             para="f-fornecedor"
+            :lido="lido('fornecedor')"
             :erro="erro('fornecedorId')"
-            dica="Quem prestou o serviço ou vendeu — não a operadora do cartão."
+            dica="Quem recebe o pagamento: quem emitiu a nota ou o beneficiário do boleto (não a operadora do cartão). O CNPJ dele é o que acha o título no Sienge."
             class="sm:col-span-2"
           >
             <FornecedorPicker
@@ -425,6 +848,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Código de identificação"
             para="f-codigo"
+            :lido="lido('codigo')"
             :erro="erro('codigoIdentificacao')"
             dica="Nº da nota, do boleto, do pedido ou da transação no cartão. Ajuda a achar duplicidade."
             class="sm:col-span-2"
@@ -470,6 +894,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Categoria"
             para="f-categoria"
+            :lido="lido('categoria')"
             :erro="erro('categoriaId')"
             :dica="categoriaEscolhida?.descricao ?? undefined"
           >
@@ -485,7 +910,12 @@ async function salvar(confirmarDuplicidade = false) {
             </select>
           </FormField>
 
-          <FormField rotulo="Empreendimento" para="f-emp" :erro="erro('empreendimentoId')">
+          <FormField
+            rotulo="Empreendimento"
+            para="f-emp"
+            :lido="lido('empreendimento')"
+            :erro="erro('empreendimentoId')"
+          >
             <select
               id="f-emp"
               v-model="form.empreendimentoId"
@@ -524,6 +954,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             rotulo="Forma de pagamento"
             para="f-forma"
+            :lido="lido('forma')"
             :erro="erro('formaPagamentoId')"
             class="sm:col-span-3"
           >
@@ -586,6 +1017,7 @@ async function salvar(confirmarDuplicidade = false) {
           <FormField
             :rotulo="quantidade > 1 ? '1º vencimento' : 'Vencimento'"
             para="f-venc"
+            :lido="lido('vencimento')"
             :erro="erro('parcelas.0.vencimento')"
           >
             <input
@@ -609,6 +1041,7 @@ async function salvar(confirmarDuplicidade = false) {
             v-if="parcelas.length === 1 && jaPago"
             rotulo="Pago em"
             para="f-pago"
+            :lido="lido('pago')"
             :erro="erro('parcelas.0.pagoEm')"
             class="sm:col-start-3"
           >
@@ -678,7 +1111,12 @@ async function salvar(confirmarDuplicidade = false) {
 
       <!-- Observação -->
       <section class="card p-5">
-        <FormField rotulo="Observação" para="f-obs" :erro="erro('observacao')">
+        <FormField
+          rotulo="Observação"
+          para="f-obs"
+          :lido="lido('observacao')"
+          :erro="erro('observacao')"
+        >
           <textarea
             id="f-obs"
             v-model="form.observacao"
@@ -721,7 +1159,7 @@ async function salvar(confirmarDuplicidade = false) {
           <button
             type="button"
             class="btn btn-sm btn-secondary"
-            :disabled="salvando"
+            :disabled="salvando || ocupadoComArquivo"
             @click="salvar(true)"
           >
             Salvar mesmo assim
@@ -786,7 +1224,14 @@ async function salvar(confirmarDuplicidade = false) {
         </p>
 
         <div class="mt-5 flex flex-col gap-2">
-          <button type="submit" class="btn btn-primary w-full" :disabled="salvando">
+          <p v-if="ocupadoComArquivo" class="text-center text-[12px] text-faint">
+            Esperando o comprovante subir e ser lido…
+          </p>
+          <button
+            type="submit"
+            class="btn btn-primary w-full"
+            :disabled="salvando || ocupadoComArquivo"
+          >
             <Loader2 v-if="salvando" :size="15" class="animate-spin" />
             {{ editando ? 'Salvar alterações' : 'Registrar lançamento' }}
           </button>
@@ -797,9 +1242,12 @@ async function salvar(confirmarDuplicidade = false) {
       </div>
     </aside>
 
+    <VisualizadorComprovante :anexo="vendo" @fechar="vendo = null" />
+
     <NovoFornecedorModal
       :open="modalFornecedor"
       :nome-inicial="nomeFornecedor"
+      :documento-inicial="documentoFornecedor"
       @fechar="modalFornecedor = false"
       @criado="aoCriarFornecedor"
     />

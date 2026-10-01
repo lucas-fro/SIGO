@@ -3,6 +3,7 @@ import {
   Download,
   Loader2,
   Maximize2,
+  Paperclip,
   Plus,
   ReceiptText,
   Search,
@@ -160,8 +161,16 @@ const chips = computed(() =>
   }),
 )
 
+/** Só os lançamentos sem comprovante: para cobrar quem ficou devendo o boleto ou a nota. */
+const semComprovante = computed(() => texto('comprovante') === 'sem')
+
+function alternarSemComprovante() {
+  atualizar({ comprovante: semComprovante.value ? undefined : 'sem' })
+}
+
 const temFiltro = computed(
-  () => chips.value.length > 0 || periodo.value !== 'tudo' || !!texto('busca'),
+  () =>
+    chips.value.length > 0 || periodo.value !== 'tudo' || !!texto('busca') || semComprovante.value,
 )
 
 /**
@@ -175,6 +184,7 @@ function limparFiltros(incluindoAba = false) {
     periodo: undefined,
     de: undefined,
     ate: undefined,
+    comprovante: undefined,
     ...Object.fromEntries(FILTROS.map((f) => [f.chave, undefined])),
     ...(incluindoAba ? { aba: undefined } : {}),
   })
@@ -191,6 +201,7 @@ function mudarPeriodo(evento: Event) {
 const filtrosApi = computed<QueryParams>(() => {
   const base: QueryParams = {
     busca: texto('busca') || undefined,
+    comprovante: semComprovante.value ? 'sem' : undefined,
     ...intervalo.value,
     ...Object.fromEntries(FILTROS.map((f) => [f.chave, numero(f.chave)])),
   }
@@ -357,6 +368,17 @@ async function exportarCsv() {
         <span v-if="chips.length" class="count !bg-accent !text-white">{{ chips.length }}</span>
       </button>
 
+      <button
+        type="button"
+        class="btn btn-sm btn-secondary"
+        :class="semComprovante && '!border-accent-line !bg-accent-soft !text-accent-text'"
+        :aria-pressed="semComprovante"
+        @click="alternarSemComprovante"
+      >
+        <Paperclip :size="14" />
+        Sem comprovante
+      </button>
+
       <button v-if="temFiltro" type="button" class="btn btn-sm btn-ghost" @click="limparFiltros()">
         Limpar
       </button>
@@ -378,6 +400,9 @@ async function exportarCsv() {
         </select>
       </label>
     </div>
+
+    <!-- Parcelas em aberto: a conferência com o Sienge marca as pagas duas vezes por dia. -->
+    <ConferenciaSienge v-if="aba === 'em_aberto' || aba === 'vencido'" class="px-5 pb-3 sm:px-6" />
 
     <div v-if="chips.length && !mostrarFiltros" class="flex flex-wrap gap-2 px-5 pb-3 sm:px-6">
       <span v-for="c in chips" :key="c.chave" class="chip">
@@ -449,11 +474,20 @@ async function exportarCsv() {
               </td>
               <td data-titulo>
                 <div class="max-w-[380px]">
-                  <div
-                    class="truncate font-medium text-ink"
-                    :class="l.situacao === 'cancelado' && 'text-faint line-through'"
-                  >
-                    {{ l.descricao }}
+                  <div class="flex min-w-0 items-center gap-1.5">
+                    <div
+                      class="truncate font-medium text-ink"
+                      :class="l.situacao === 'cancelado' && 'text-faint line-through'"
+                    >
+                      {{ l.descricao }}
+                    </div>
+                    <Paperclip
+                      v-if="l.anexos"
+                      :size="13"
+                      class="shrink-0 text-faint"
+                      role="img"
+                      :aria-label="l.anexos === 1 ? 'Com comprovante' : `${l.anexos} comprovantes`"
+                    />
                   </div>
                   <div
                     v-if="l.fornecedor || l.codigoIdentificacao"

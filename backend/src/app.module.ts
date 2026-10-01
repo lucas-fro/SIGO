@@ -7,9 +7,17 @@ import { DatabaseModule } from './db/database.module.js'
 import { HealthController } from './health.controller.js'
 import { LancamentosModule } from './lancamentos/lancamentos.module.js'
 import { PainelModule } from './painel/painel.module.js'
+import { SiengeModule } from './sienge/sienge.module.js'
 
 @Module({
-  imports: [DatabaseModule, AuthModule, CadastrosModule, LancamentosModule, PainelModule],
+  imports: [
+    DatabaseModule,
+    AuthModule,
+    CadastrosModule,
+    LancamentosModule,
+    PainelModule,
+    SiengeModule,
+  ],
   controllers: [HealthController],
   // Todo corpo, query e parâmetro com DTO de contrato passa pelo zod antes de chegar à rota.
   providers: [{ provide: APP_PIPE, useClass: ZodValidationPipe }],

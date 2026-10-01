@@ -5,3 +5,5 @@ coverage
 .env
 Dockerfile
 .dockerignore
+# Comprovantes do desenvolvimento não entram na imagem.
+dados
