@@ -5,7 +5,6 @@ import { data, mesCurto, mesPorExtenso, reais } from '~/composables/useFormat'
 import { useIndicadores, usePainel } from '~/composables/useLancamentos'
 
 definePageMeta({ title: 'Dashboard' })
-useHead({ title: 'Dashboard · SIGO' })
 
 const { user, canEdit, isAdmin } = useAuth()
 const route = useRoute()

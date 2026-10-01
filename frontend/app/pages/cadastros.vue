@@ -13,7 +13,6 @@ import { useCadastros, useFornecedores } from '~/composables/useCadastros'
 import { useToast } from '~/composables/useToast'
 
 definePageMeta({ title: 'Cadastros' })
-useHead({ title: 'Cadastros · SIGO' })
 
 const route = useRoute()
 const router = useRouter()

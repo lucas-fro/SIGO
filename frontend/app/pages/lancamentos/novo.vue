@@ -4,7 +4,6 @@ import type { LancamentoDetalhe } from '#contracts'
 import { useToast } from '~/composables/useToast'
 
 definePageMeta({ title: 'Novo lançamento' })
-useHead({ title: 'Novo lançamento · SIGO' })
 
 const router = useRouter()
 const { canEdit } = useAuth()

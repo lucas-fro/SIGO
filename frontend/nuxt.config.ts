@@ -48,7 +48,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'pt-BR' },
-      title: 'SIGO',
+      title: 'SIGO - Sistema Integrado de Gestão Orçamentária',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },

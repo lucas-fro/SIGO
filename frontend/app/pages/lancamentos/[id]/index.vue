@@ -9,7 +9,6 @@ const id = computed(() => {
   const n = Number(route.params.id)
   return Number.isInteger(n) && n > 0 ? n : null
 })
-useHead({ title: () => `Lançamento #${id.value ?? ''} · SIGO` })
 
 const { data: lancamento, isPending, isError, error } = useLancamento(id)
 </script>

@@ -3,7 +3,6 @@ import { Loader2 } from 'lucide-vue-next'
 import { ApiError } from '~/composables/useApi'
 
 definePageMeta({ layout: 'blank' })
-useHead({ title: 'Entrar · SIGO' })
 
 const { login } = useAuth()
 const route = useRoute()

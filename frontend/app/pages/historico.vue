@@ -26,7 +26,6 @@ import { useLancamento } from '~/composables/useLancamentos'
 import { useToast } from '~/composables/useToast'
 
 definePageMeta({ title: 'Histórico' })
-useHead({ title: 'Histórico · SIGO' })
 
 const route = useRoute()
 const router = useRouter()
