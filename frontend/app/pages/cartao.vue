@@ -10,24 +10,52 @@ import {
   Wallet,
   X,
 } from 'lucide-vue-next'
-import type { Cartao, GastoFixo, RecargaCartao } from '#contracts'
+import { hoje, mesQuery, type Cartao, type GastoFixo, type RecargaCartao } from '#contracts'
 import { ApiError, useApi } from '~/composables/useApi'
 import { useCadastros } from '~/composables/useCadastros'
-import { data, reais } from '~/composables/useFormat'
-import { usePainel } from '~/composables/useLancamentos'
+import { data, mesPorExtenso, reais } from '~/composables/useFormat'
+import { useSituacaoCartoes } from '~/composables/useLancamentos'
 import { useToast } from '~/composables/useToast'
 
 /*
-  Aba "Cartões e orçamento" dos cadastros: cada cartão com o orçamento do mês,
-  a fatura e os gastos fixos que carrega. Cartão e orçamento são do admin;
-  gasto fixo, de quem lança no setor (a API confere).
+  Os cartões do setor: cada um com o orçamento do mês ou, no de recarga
+  avulsa, o saldo e as recargas; a fatura; os gastos fixos que carrega; e a
+  situação num mês (o corrente ou o escolhido no seletor). Cartão e orçamento
+  são do admin; recarga e gasto fixo, de quem lança no setor (a API confere).
 */
+definePageMeta({ title: 'Cartão' })
+
 const { isAdmin, canEdit } = useAuth()
+const route = useRoute()
+const router = useRouter()
 const { data: cadastros, isPending } = useCadastros()
-const { data: painel } = usePainel()
 const api = useApi()
 const qc = useQueryClient()
 const toast = useToast()
+
+// ---------- mês da situação ----------
+
+const mesCorrente = hoje().slice(0, 7)
+
+/** Como no dashboard: o mês fica na URL (`?mes=AAAA-MM`); inválido ou futuro, vale o corrente. */
+const mes = computed(() => {
+  const q = route.query.mes
+  return typeof q === 'string' && mesQuery.safeParse(q).success && q <= mesCorrente
+    ? q
+    : mesCorrente
+})
+
+function escolherMes(novo: string) {
+  void router.replace({ query: { ...route.query, mes: novo === mesCorrente ? undefined : novo } })
+}
+
+const { data: situacao, isPlaceholderData: trocandoMes } = useSituacaoCartoes(mes)
+// Os textos saem do mês dos dados, para baterem com os números na tela.
+const mesDaSituacao = computed(() => situacao.value?.mes ?? mes.value)
+const encerrado = computed(() => mesDaSituacao.value < (situacao.value?.hoje ?? hoje()).slice(0, 7))
+const tituloSituacao = computed(
+  () => `Situação em ${mesPorExtenso(mesDaSituacao.value).toLowerCase()}`,
+)
 
 const mostrarCartoesExcluidos = ref(false)
 const mostrarFixosExcluidos = reactive<Record<number, boolean>>({})
@@ -43,7 +71,10 @@ const fixosVisiveis = (c: Cartao) =>
   c.gastosFixos.filter((f) => f.ativo !== !!mostrarFixosExcluidos[c.id])
 const quantidadeFixosExcluidos = (c: Cartao) => c.gastosFixos.filter((f) => !f.ativo).length
 const totalFixos = (c: Cartao) => fixosAtivos(c).reduce((t, f) => t + f.valorCentavos, 0)
-const situacaoDoMes = (c: Cartao) => painel.value?.cartoes.find((x) => x.id === c.id)
+const situacaoDoMes = (c: Cartao) => situacao.value?.cartoes.find((x) => x.id === c.id)
+/** Saldo de hoje do cartão de recarga avulsa, seja qual for o mês escolhido. */
+const saldoAtual = (c: Cartao) =>
+  situacao.value?.saldos.find((s) => s.cartaoId === c.id)?.centavos ?? null
 
 function descricaoFatura(c: Cartao): string {
   return c.diaFechamento && c.diaVencimento
@@ -62,11 +93,6 @@ const modalRecarga = ref(false)
 const cartaoDaRecarga = ref<Cartao | null>(null)
 const todasRecargas = reactive<Record<number, boolean>>({})
 const recargasVisiveis = (c: Cartao) => (todasRecargas[c.id] ? c.recargas : c.recargas.slice(0, 5))
-/** Saldo de hoje: o de antes do mês, mais as recargas, menos o lançado no mês. */
-function saldoAtual(c: Cartao): number | null {
-  const s = situacaoDoMes(c)
-  return s ? s.saldoAnteriorCentavos + s.recarregadoCentavos - s.lancadoCentavos : null
-}
 function novaRecarga(c: Cartao) {
   cartaoDaRecarga.value = c
   modalRecarga.value = true
@@ -76,7 +102,7 @@ async function removerRecarga(r: RecargaCartao) {
   try {
     await api.post(`/recargas/${r.id}/remover`, {})
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
-    void qc.invalidateQueries({ queryKey: ['painel'] })
+    void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
     toast.sucesso('Recarga retirada do saldo')
   } catch (e) {
     if (!(e instanceof ApiError)) throw e
@@ -114,7 +140,7 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
   try {
     await api.patch(caminho, { ativo: !ativo })
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
-    void qc.invalidateQueries({ queryKey: ['painel'] })
+    void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
     toast.sucesso(`“${nome}” ${ativo ? 'excluído' : 'restaurado'}`)
   } catch (e) {
     if (!(e instanceof ApiError)) throw e
@@ -124,19 +150,16 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
 </script>
 
 <template>
-  <div class="px-5 py-5 sm:px-6">
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <p class="max-w-2xl text-[13px] text-muted">
-        Cada cartão tem um orçamento por mês ou vive de recargas avulsas (de qualquer valor, em
-        qualquer dia). Os gastos fixos (assinaturas, ferramentas) já contam como comprometidos desde
-        o início do mês e viram lançamento pelo botão
-        <span class="font-medium text-ink">Lançar gastos fixos</span>.
-      </p>
-      <div class="flex items-center gap-2">
+  <div class="pb-8">
+    <PageHeader
+      titulo="Cartão"
+      subtitulo="Orçamento ou recargas, fatura e gastos fixos de cada cartão. O gasto fixo conta como comprometido desde o início do mês e vira lançamento pelo botão Lançar gastos fixos."
+    >
+      <template #acoes>
         <button
           v-if="quantidadeCartoesExcluidos || mostrarCartoesExcluidos"
           type="button"
-          class="btn btn-sm btn-ghost"
+          class="btn btn-ghost"
           @click="mostrarCartoesExcluidos = !mostrarCartoesExcluidos"
         >
           {{
@@ -145,24 +168,25 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
               : `Ver excluídos (${quantidadeCartoesExcluidos})`
           }}
         </button>
-        <button v-if="isAdmin" type="button" class="btn btn-primary btn-sm" @click="novoCartao">
-          <Plus :size="15" /> Novo cartão
+        <SeletorMes :model-value="mes" :max="mesCorrente" @update:model-value="escolherMes" />
+        <button v-if="isAdmin" type="button" class="btn btn-primary" @click="novoCartao">
+          <Plus :size="16" /> Novo cartão
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <div v-if="isPending" class="flex flex-col gap-4">
+    <div v-if="isPending" class="flex flex-col gap-4 px-5 sm:px-6">
       <div v-for="n in 2" :key="n" class="skeleton h-40" />
     </div>
 
-    <div v-else-if="!cartoes.length" class="card">
+    <div v-else-if="!cartoes.length" class="card mx-5 sm:mx-6">
       <EmptyState
         :icone="CreditCard"
         :titulo="mostrarCartoesExcluidos ? 'Nenhum cartão excluído' : 'Nenhum cartão cadastrado'"
         :texto="
           mostrarCartoesExcluidos
             ? 'Os cartões excluídos aparecerão aqui para restauração.'
-            : 'Cadastre o cartão do setor com o orçamento do mês e, se tiver, o fechamento e o vencimento da fatura.'
+            : 'Cadastre o cartão do setor, com orçamento por mês ou de recarga avulsa e, se tiver, o fechamento e o vencimento da fatura.'
         "
       >
         <button
@@ -176,7 +200,12 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
       </EmptyState>
     </div>
 
-    <div v-else class="flex flex-col gap-4">
+    <div
+      v-else
+      class="flex flex-col gap-4 px-5 transition-opacity duration-150 sm:px-6"
+      :class="trocandoMes ? 'opacity-60' : ''"
+      :aria-busy="trocandoMes || undefined"
+    >
       <section
         v-for="c in cartoes"
         :key="c.id"
@@ -250,11 +279,14 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
               {{ saldoAtual(c) === null ? '—' : reais(saldoAtual(c)) }}
             </div>
             <p class="mt-0.5 text-[12.5px] text-muted">
-              Recargas somadas, menos o que foi lançado no cartão.
+              Recargas somadas, menos o que foi lançado no cartão até hoje.
             </p>
             <div v-if="situacaoDoMes(c)" class="mt-4 rounded-lg bg-surface-alt p-3">
-              <div class="eyebrow mb-2">Situação neste mês</div>
-              <OrcamentoCartao :cartao="situacaoDoMes(c)!" />
+              <OrcamentoCartao
+                :cartao="situacaoDoMes(c)!"
+                :titulo="tituloSituacao"
+                :encerrado="encerrado"
+              />
             </div>
             <div class="eyebrow mt-4">Recargas</div>
             <p v-if="!c.recargas.length" class="mt-2 text-[13px] text-faint">
@@ -307,8 +339,11 @@ async function alternarExclusao(caminho: string, ativo: boolean, nome: string) {
               }}</span>
             </p>
             <div v-if="situacaoDoMes(c)" class="mt-4 rounded-lg bg-surface-alt p-3">
-              <div class="eyebrow mb-2">Situação neste mês</div>
-              <OrcamentoCartao :cartao="situacaoDoMes(c)!" />
+              <OrcamentoCartao
+                :cartao="situacaoDoMes(c)!"
+                :titulo="tituloSituacao"
+                :encerrado="encerrado"
+              />
             </div>
           </div>
 

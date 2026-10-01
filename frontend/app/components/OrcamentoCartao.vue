@@ -4,8 +4,9 @@ import type { OrcamentoCartao } from '#contracts'
 import { reais } from '~/composables/useFormat'
 
 /*
-  Medidor do orçamento de um cartão no mês. No cartão de recarga avulsa, o
-  trilho é o disponível no mês: saldo de antes mais as recargas do mês.
+  Medidor do orçamento de um cartão no mês, dentro do bloco do cartão na
+  página Cartão (o título diz o mês). No cartão de recarga avulsa, o trilho é
+  o disponível no mês: saldo de antes mais as recargas do mês.
 
   O trilho é o orçamento. O primeiro trecho é o que já foi lançado; o
   segundo, os gastos fixos que ainda não viraram lançamento (vão cair, então
@@ -14,7 +15,7 @@ import { reais } from '~/composables/useFormat'
   Num mês encerrado, o que restou "sobrou" e o fixo que ficou de fora "não foi
   lançado".
 */
-const props = defineProps<{ cartao: OrcamentoCartao; encerrado?: boolean }>()
+const props = defineProps<{ cartao: OrcamentoCartao; titulo: string; encerrado?: boolean }>()
 
 const avulsa = computed(() => props.cartao.recarga === 'avulsa')
 const comprometido = computed(
@@ -46,14 +47,9 @@ const corLancado = computed(
 
 <template>
   <div>
-    <!-- O nome tem a linha inteira; os valores vêm logo abaixo da barra. -->
+    <!-- O título tem a linha inteira; os valores vêm logo abaixo da barra. -->
     <div class="flex items-baseline justify-between gap-3">
-      <div class="min-w-0 truncate text-[13.5px] font-medium text-ink">
-        {{ cartao.nome }}
-        <span v-if="cartao.final" class="tnum ml-1 text-[12px] font-normal text-faint"
-          >•••• {{ cartao.final }}</span
-        >
-      </div>
+      <div class="eyebrow min-w-0 truncate">{{ titulo }}</div>
       <span v-if="cartao.orcamentoCentavos" class="tnum shrink-0 text-[12px] text-faint">{{
         uso.toLocaleString('pt-BR', { style: 'percent', maximumFractionDigits: 0 })
       }}</span>

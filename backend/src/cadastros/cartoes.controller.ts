@@ -1,4 +1,14 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Patch, Post } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common'
 import { Papeis, UsuarioAtual } from '../auth/decorators.js'
 import { zodDto } from '../common/validacao.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
@@ -9,6 +19,7 @@ import {
   gastoFixoSchema,
   recargaSchema,
 } from '../contracts/cadastros.js'
+import { situacaoCartoesSchema } from '../contracts/cartoes.js'
 import { CartoesService } from './cartoes.service.js'
 
 class NovoCartaoDto extends zodDto(cartaoSchema) {}
@@ -16,11 +27,20 @@ class EditarCartaoDto extends zodDto(editarCartaoSchema) {}
 class NovoGastoFixoDto extends zodDto(gastoFixoSchema) {}
 class EditarGastoFixoDto extends zodDto(editarGastoFixoSchema) {}
 class NovaRecargaDto extends zodDto(recargaSchema) {}
+class SituacaoCartoesDto extends zodDto(situacaoCartoesSchema) {}
 
-/** A listagem vem junto das outras listas, em GET /cadastros. */
+/**
+ * A listagem dos cartões vem junto das outras listas, em GET /cadastros; os
+ * números da página Cartão (situação do mês e saldo), em GET /cartoes/situacao.
+ */
 @Controller()
 export class CartoesController {
   constructor(private readonly cartoes: CartoesService) {}
+
+  @Get('cartoes/situacao')
+  situacao(@Query() { setorId, mes }: SituacaoCartoesDto, @UsuarioAtual() usuario: UsuarioSessao) {
+    return this.cartoes.situacao(usuario, setorId, mes)
+  }
 
   @Post('cartoes')
   @Papeis('admin')

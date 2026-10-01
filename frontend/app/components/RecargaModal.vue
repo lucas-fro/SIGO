@@ -53,7 +53,7 @@ async function salvar() {
   try {
     await api.post('/recargas', r.data)
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
-    void qc.invalidateQueries({ queryKey: ['painel'] })
+    void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
     toast.sucesso('Recarga registrada')
     emit('fechar')
   } catch (e) {

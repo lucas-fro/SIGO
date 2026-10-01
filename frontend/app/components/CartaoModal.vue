@@ -103,7 +103,7 @@ async function salvar() {
     if (editando.value) await api.patch(`/cartoes/${props.cartao!.id}`, r.data)
     else await api.post('/cartoes', r.data)
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
-    void qc.invalidateQueries({ queryKey: ['painel'] })
+    void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
     toast.sucesso(
       editando.value ? 'Cartão atualizado' : `Cartão “${campos.nome.trim()}” cadastrado`,
     )

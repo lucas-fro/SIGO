@@ -4,6 +4,7 @@ import type {
   Indicadores,
   LancamentoDetalhe,
   Painel,
+  SituacaoCartoes,
   StatusConferencia,
 } from '#contracts'
 import { useApiQuery } from '~/composables/useApi'
@@ -35,6 +36,15 @@ export const useIndicadores = (mes?: MaybeRefOrGetter<string | undefined>) =>
 export const usePainel = (mes?: MaybeRefOrGetter<string | undefined>) =>
   useApiQuery<Painel>('painel', '/painel', () => ({ mes: toValue(mes) }), { keepPrevious: true })
 
+/** Página Cartão: a situação de cada cartão no mês e o saldo de hoje dos de recarga avulsa. */
+export const useSituacaoCartoes = (mes?: MaybeRefOrGetter<string | undefined>) =>
+  useApiQuery<SituacaoCartoes>(
+    'cartoes-situacao',
+    '/cartoes/situacao',
+    () => ({ mes: toValue(mes) }),
+    { keepPrevious: true },
+  )
+
 /**
  * O gasto do setor lançado no Sienge no mês. A API responde na hora com a
  * cópia local; enquanto ela busca o Sienge em segundo plano, pergunta de novo
@@ -46,11 +56,12 @@ export const useGastoSienge = (mes?: MaybeRefOrGetter<string | undefined>) =>
     refetchInterval: (g) => (g?.atualizando ? 4000 : false),
   })
 
-/** O que depende dos lançamentos (e do orçamento dos cartões) e precisa ser refeito quando algo muda. */
+/** O que depende dos lançamentos (e a situação dos cartões) e precisa ser refeito quando algo muda. */
 export function invalidarTotais(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['lancamentos'] })
   void qc.invalidateQueries({ queryKey: ['indicadores'] })
   void qc.invalidateQueries({ queryKey: ['painel'] })
+  void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
   // Cancelar ou editar um fixo lançado muda o que ainda falta lançar no mês.
   void qc.invalidateQueries({ queryKey: ['fixos-lancados'] })
 }

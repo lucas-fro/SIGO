@@ -107,7 +107,7 @@ async function salvar() {
     if (editando.value) await api.patch(`/gastos-fixos/${props.fixo!.id}`, r.data)
     else await api.post('/gastos-fixos', r.data)
     await qc.invalidateQueries({ queryKey: ['cadastros'] })
-    void qc.invalidateQueries({ queryKey: ['painel'] })
+    void qc.invalidateQueries({ queryKey: ['cartoes-situacao'] })
     toast.sucesso(editando.value ? 'Gasto fixo atualizado' : 'Gasto fixo adicionado')
     emit('fechar')
   } catch (e) {

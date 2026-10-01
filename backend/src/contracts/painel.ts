@@ -1,15 +1,14 @@
 import { z } from 'zod'
-import type { TipoRecarga } from './cadastros.js'
 import { idQuery, mesQuery } from './comum.js'
 
 /*
   O dashboard. Os indicadores do topo (gasto do mês, em aberto, vencido,
   vence em 7 dias e a série de 12 meses) vêm de `/lancamentos/indicadores`;
-  aqui fica o resto: para onde foi o dinheiro no mês, como está cada cartão
-  frente ao orçamento e o que vence em seguida.
+  aqui fica o resto: para onde foi o dinheiro no mês e o que vence em seguida.
+  Os cartões têm página própria (contratos em `cartoes.ts`).
 
-  O mês (`mes`, "AAAA-MM") vale para categoria, empreendimento e cartões; sem
-  ele, é o corrente. "A pagar" é sempre a partir de hoje, seja qual for o mês.
+  O mês (`mes`, "AAAA-MM") vale para categoria e empreendimento; sem ele, é o
+  corrente. "A pagar" é sempre a partir de hoje, seja qual for o mês.
 */
 
 export const painelSchema = z.object({
@@ -23,34 +22,6 @@ export interface FatiaPainel {
   id: number | null
   nome: string
   centavos: number
-}
-
-/**
- * Situação de um cartão num mês (pela data do gasto).
- *
- * comprometido = lançado + fixos que não viraram lançamento no mês;
- * disponível = orçamento − comprometido (negativo quando estourou).
- * O orçamento é o do cadastro hoje: ainda não há histórico de orçamento por mês.
- */
-export interface OrcamentoCartao {
-  id: number
-  nome: string
-  final: string | null
-  recarga: TipoRecarga
-  /**
-   * Mensal: o orçamento do cadastro. Avulsa: o disponível no mês, saldo de antes
-   * mais as recargas do mês (0 se o saldo de antes for negativo e nada entrou).
-   */
-  orcamentoCentavos: number
-  /** Avulsa: recargas menos gastos de antes do mês (pode ser negativo). */
-  saldoAnteriorCentavos: number
-  /** Avulsa: soma das recargas com data no mês. */
-  recarregadoCentavos: number
-  lancadoCentavos: number
-  /** Soma dos gastos fixos ativos do cartão, por mês. */
-  fixosCentavos: number
-  fixosPendentesCentavos: number
-  fixosPendentes: number
 }
 
 /** Uma parcela a pagar: vencida ou vencendo nos próximos 30 dias. */
@@ -71,6 +42,5 @@ export interface Painel {
   mes: string
   porCategoria: FatiaPainel[]
   porEmpreendimento: FatiaPainel[]
-  cartoes: OrcamentoCartao[]
   aPagar: VencimentoPainel[]
 }

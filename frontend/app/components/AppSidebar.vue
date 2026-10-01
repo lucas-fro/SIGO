@@ -2,6 +2,7 @@
 import type { Component } from 'vue'
 import {
   CirclePlus,
+  CreditCard,
   History,
   LayoutDashboard,
   LogOut,
@@ -41,6 +42,7 @@ const grupos = computed<Array<{ rotulo: string; itens: Item[] }>>(() => [
         icone: History,
         contagem: vencidas.value || undefined,
       },
+      { to: '/cartao', rotulo: 'Cartão', icone: CreditCard },
       ...(canEdit.value
         ? [{ to: '/lancamentos/novo', rotulo: 'Novo lançamento', icone: CirclePlus }]
         : []),

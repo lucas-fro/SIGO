@@ -1113,7 +1113,7 @@ async function salvar(confirmarDuplicidade = false) {
             :erro="erro('cartaoId')"
             :dica="
               !cartoesDaForma.length
-                ? 'Nenhum cartão cadastrado para esta forma. Cadastre em Cadastros › Cartões para acompanhar o orçamento.'
+                ? 'Nenhum cartão cadastrado para esta forma. Cadastre na página Cartão para acompanhar o orçamento.'
                 : cartaoEscolhido?.diaFechamento
                   ? `Fatura fecha dia ${cartaoEscolhido.diaFechamento} e vence dia ${cartaoEscolhido.diaVencimento}: o vencimento abaixo já segue a fatura.`
                   : undefined

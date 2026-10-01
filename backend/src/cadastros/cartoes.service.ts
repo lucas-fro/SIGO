@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { and, asc, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm'
-import { enxergaSetor, exigirEdicaoNoSetor } from '../common/acesso.js'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
+import { enxergaSetor, escopoDeSetor, exigirEdicaoNoSetor } from '../common/acesso.js'
 import { ehViolacaoUnica } from '../common/erros-db.js'
 import { erroDeValidacao } from '../common/validacao.js'
 import type { UsuarioSessao } from '../contracts/auth.js'
@@ -19,7 +20,8 @@ import type {
   NovoCartao,
   NovoGastoFixo,
 } from '../contracts/cadastros.js'
-import { hoje } from '../contracts/datas.js'
+import type { SituacaoCartoes } from '../contracts/cartoes.js'
+import { FUSO, fimDoMes, hoje } from '../contracts/datas.js'
 import type { ErroValidacao } from '../contracts/comum.js'
 import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
@@ -30,11 +32,15 @@ import {
   formasPagamento,
   fornecedores,
   gastosFixos,
+  lancamentos,
   recargasCartao,
   setores,
 } from '../db/schema.js'
 
 const CARTAO_REPETIDO = 'Já existe um cartão com esse nome neste setor'
+
+/** O dia (em São Paulo) em que o registro foi cadastrado. */
+const diaDoCadastro = (coluna: PgColumn): SQL => sql`(${coluna} at time zone ${FUSO})::date`
 
 /** Os cartões (com os gastos fixos de cada um) que passam no filtro de setor. */
 export async function listarCartoes(db: Database, filtroSetor?: SQL): Promise<Cartao[]> {
@@ -257,6 +263,115 @@ export class CartoesService {
         .where(eq(recargasCartao.id, id))
     }
     return this.carregar(cartao.id)
+  }
+
+  /**
+   * A situação de cada cartão num mês, pela data do gasto, e o saldo de hoje
+   * dos de recarga avulsa. O cartão é compromisso e conta o mês inteiro: o
+   * fixo lançado para o dia 15 já está comprometido no dia 1.
+   */
+  async situacao(usuario: UsuarioSessao, setorId?: number, mes?: string): Promise<SituacaoCartoes> {
+    const dia = hoje()
+    const referencia = mes ?? dia.slice(0, 7)
+    const inicio = `${referencia}-01`
+    const fim = fimDoMes(inicio)
+    const somaSe = (condicao: SQL) =>
+      sql<string>`coalesce(sum(${lancamentos.valorCentavos}) filter (where ${condicao}), 0)::bigint`
+
+    // Gasto fixo "lançado no mês": tem lançamento ativo com data do gasto no mês.
+    const lancadoNoMes = sql`select 1 from ${lancamentos} where ${lancamentos.gastoFixoId} = ${gastosFixos.id} and ${lancamentos.situacao} = 'ativo' and ${lancamentos.dataGasto} between ${inicio}::date and ${fim}::date`
+    // Cartão que teve gasto no mês aparece mesmo que tenha sido desativado depois.
+    const cartaoUsadoNoMes = sql`exists (select 1 from ${lancamentos} where ${lancamentos.cartaoId} = ${cartoes.id} and ${lancamentos.situacao} = 'ativo' and ${lancamentos.dataGasto} between ${inicio}::date and ${fim}::date)`
+
+    const [lista, gastoPorCartao, fixosPorCartao, recargasPorCartao] = await Promise.all([
+      this.db
+        .select({
+          id: cartoes.id,
+          recarga: cartoes.recarga,
+          orcamentoCentavos: cartoes.orcamentoMensalCentavos,
+          // Num mês passado, cartão cadastrado depois dele não entra.
+          noMes: sql<boolean>`(${cartoes.ativo} and ${diaDoCadastro(cartoes.criadoEm)} <= ${fim}::date) or ${cartaoUsadoNoMes}`,
+        })
+        .from(cartoes)
+        .where(escopoDeSetor(usuario, cartoes.setorId, setorId)),
+      // O lançado no mês e, para o saldo do avulso, o de antes do mês e o de até hoje.
+      this.db
+        .select({
+          cartaoId: lancamentos.cartaoId,
+          noMes: somaSe(sql`${lancamentos.dataGasto} between ${inicio}::date and ${fim}::date`),
+          antes: somaSe(sql`${lancamentos.dataGasto} < ${inicio}::date`),
+          ateHoje: somaSe(sql`${lancamentos.dataGasto} <= ${dia}::date`),
+        })
+        .from(lancamentos)
+        .where(
+          and(
+            eq(lancamentos.situacao, 'ativo'),
+            escopoDeSetor(usuario, lancamentos.setorId, setorId),
+            isNotNull(lancamentos.cartaoId),
+          ),
+        )
+        .groupBy(lancamentos.cartaoId),
+      this.db
+        .select({
+          cartaoId: gastosFixos.cartaoId,
+          centavos: sql<string>`sum(${gastosFixos.valorCentavos})::bigint`,
+          pendentes: sql<number>`(count(*) filter (where not exists (${lancadoNoMes})))::int`,
+          pendentesCentavos: sql<string>`coalesce(sum(${gastosFixos.valorCentavos}) filter (where not exists (${lancadoNoMes})), 0)::bigint`,
+        })
+        .from(gastosFixos)
+        // Gasto fixo cadastrado depois do mês não estava "a lançar" nele.
+        .where(and(eq(gastosFixos.ativo, true), lte(diaDoCadastro(gastosFixos.criadoEm), fim)))
+        .groupBy(gastosFixos.cartaoId),
+      // Recarga nunca tem data no futuro: o total é o que entrou até hoje.
+      this.db
+        .select({
+          cartaoId: recargasCartao.cartaoId,
+          antes: sql<string>`coalesce(sum(${recargasCartao.valorCentavos}) filter (where ${recargasCartao.data} < ${inicio}::date), 0)::bigint`,
+          noMes: sql<string>`coalesce(sum(${recargasCartao.valorCentavos}) filter (where ${recargasCartao.data} between ${inicio}::date and ${fim}::date), 0)::bigint`,
+          total: sql<string>`sum(${recargasCartao.valorCentavos})::bigint`,
+        })
+        .from(recargasCartao)
+        .where(isNull(recargasCartao.removidaEm))
+        .groupBy(recargasCartao.cartaoId),
+    ])
+
+    const gastoDe = (id: number) => gastoPorCartao.find((g) => g.cartaoId === id)
+    const recargasDe = (id: number) => recargasPorCartao.find((r) => r.cartaoId === id)
+
+    return {
+      hoje: dia,
+      mes: referencia,
+      cartoes: lista
+        .filter((c) => c.noMes)
+        .map((c) => {
+          const gasto = gastoDe(c.id)
+          const recargas = recargasDe(c.id)
+          const fixos = fixosPorCartao.find((f) => f.cartaoId === c.id)
+          const avulsa = c.recarga === 'avulsa'
+          const saldoAnterior = Number(recargas?.antes ?? 0) - Number(gasto?.antes ?? 0)
+          const recarregado = Number(recargas?.noMes ?? 0)
+          return {
+            id: c.id,
+            recarga: c.recarga,
+            // No avulso, o "orçamento" do mês é o que havia de saldo mais o que entrou nele.
+            orcamentoCentavos: avulsa
+              ? Math.max(0, saldoAnterior + recarregado)
+              : c.orcamentoCentavos,
+            saldoAnteriorCentavos: avulsa ? saldoAnterior : 0,
+            recarregadoCentavos: avulsa ? recarregado : 0,
+            lancadoCentavos: Number(gasto?.noMes ?? 0),
+            fixosCentavos: Number(fixos?.centavos ?? 0),
+            fixosPendentesCentavos: Number(fixos?.pendentesCentavos ?? 0),
+            fixosPendentes: Number(fixos?.pendentes ?? 0),
+          }
+        }),
+      saldos: lista
+        .filter((c) => c.recarga === 'avulsa')
+        .map((c) => ({
+          cartaoId: c.id,
+          centavos: Number(recargasDe(c.id)?.total ?? 0) - Number(gastoDe(c.id)?.ateHoje ?? 0),
+        })),
+    }
   }
 
   private exigirAdmin(usuario: UsuarioSessao): void {

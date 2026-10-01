@@ -26,7 +26,6 @@ const toast = useToast()
 const LISTAS = [
   { valor: 'categorias', rotulo: 'Categorias', singular: 'categoria' },
   { valor: 'formas-pagamento', rotulo: 'Formas de pagamento', singular: 'forma de pagamento' },
-  { valor: 'cartoes', rotulo: 'Cartões e orçamento', singular: 'cartão' },
   { valor: 'empreendimentos', rotulo: 'Empreendimentos', singular: 'empreendimento' },
   { valor: 'campanhas', rotulo: 'Campanhas', singular: 'campanha' },
   { valor: 'fornecedores', rotulo: 'Fornecedores', singular: 'fornecedor' },
@@ -79,7 +78,6 @@ const linhasTodas = computed<Linha[]>(() => {
       return (c?.campanhas ?? []).map((i) => ({ ...i, setor: nomeSetor(i.setorId) }))
     case 'fornecedores':
       return fornecedores.value ?? []
-    case 'cartoes':
     case 'leitura-ia':
       return []
   }
@@ -267,8 +265,7 @@ async function alternarExclusao(linha: Linha) {
       </div>
     </div>
 
-    <CartoesCadastro v-if="lista === 'cartoes'" />
-    <LeituraIaCadastro v-else-if="lista === 'leitura-ia'" />
+    <LeituraIaCadastro v-if="lista === 'leitura-ia'" />
 
     <template v-else>
       <!-- novo item -->

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ArrowRight, CreditCard, History, Plus } from 'lucide-vue-next'
+import { ArrowRight, History, Plus } from 'lucide-vue-next'
 import { fimDoMes, hoje, mesQuery, type VencimentoPainel } from '#contracts'
 import { data, mesCurto, mesPorExtenso, reais } from '~/composables/useFormat'
 import { useIndicadores, usePainel } from '~/composables/useLancamentos'
 
 definePageMeta({ title: 'Dashboard' })
 
-const { user, canEdit, isAdmin } = useAuth()
+const { user, canEdit } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
@@ -146,82 +146,25 @@ const mesDaData = (iso: string) => MESES_CURTOS[Number(iso.slice(5, 7)) - 1] ?? 
       </div>
 
       <div v-else class="flex flex-col gap-4 px-5 pt-5 sm:px-6">
-        <!-- linha 1: gasto por mês e cartões -->
-        <div class="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <section class="card p-5">
-            <header class="mb-5 flex items-baseline justify-between gap-3">
-              <div>
-                <h2 class="text-[14px] font-semibold text-ink">Gasto por mês</h2>
-                <p class="hint">{{ dicaGrafico }}</p>
-              </div>
-            </header>
-            <GraficoMensal
-              v-if="indicadores"
-              :serie="indicadores.serieMensal"
-              :destaque="indicadores.mes"
-              @escolher="escolherMes"
-            />
-            <p v-else-if="erroIndicadores" class="py-16 text-center text-[13px] text-muted">
-              Não foi possível carregar o gráfico.
-            </p>
-            <div v-else class="skeleton h-52" />
-          </section>
-
-          <section class="card flex flex-col p-5">
-            <header class="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h2 class="text-[14px] font-semibold text-ink">Orçamento dos cartões</h2>
-                <p class="hint">
-                  {{ tituloMes }}: lançado + fixos {{ encerrado ? 'não lançados' : 'a lançar' }}
-                </p>
-              </div>
-              <CreditCard :size="17" class="mt-0.5 text-faint" />
-            </header>
-
-            <div v-if="carregando" class="flex flex-col gap-5">
-              <div v-for="n in 2" :key="n" class="skeleton h-12" />
+        <!-- linha 1: gasto por mês -->
+        <section class="card p-5">
+          <header class="mb-5 flex items-baseline justify-between gap-3">
+            <div>
+              <h2 class="text-[14px] font-semibold text-ink">Gasto por mês</h2>
+              <p class="hint">{{ dicaGrafico }}</p>
             </div>
-            <div v-else-if="painel?.cartoes.length" class="flex flex-col gap-5">
-              <OrcamentoCartao
-                v-for="c in painel.cartoes"
-                :key="c.id"
-                :cartao="c"
-                :encerrado="encerrado"
-              />
-              <div
-                class="mt-auto flex flex-wrap gap-x-4 gap-y-1 border-t border-line-soft pt-3 text-[11.5px] text-faint"
-              >
-                <span class="flex items-center gap-1.5"
-                  ><span class="size-2 rounded-full bg-dado" /> Lançado</span
-                >
-                <span class="flex items-center gap-1.5"
-                  ><span class="size-2 rounded-full bg-dado-2" />
-                  {{ encerrado ? 'Fixos não lançados' : 'Fixos a lançar' }}</span
-                >
-                <span class="flex items-center gap-1.5"
-                  ><span class="size-2 rounded-full bg-trilho ring-1 ring-line" />
-                  {{ encerrado ? 'Sobra' : 'Disponível' }}</span
-                >
-              </div>
-            </div>
-            <div
-              v-else-if="encerrado"
-              class="flex flex-1 items-center justify-center py-6 text-center text-[13px] text-muted"
-            >
-              Nenhum cartão em uso neste mês.
-            </div>
-            <div v-else class="flex flex-1 flex-col items-center justify-center py-6 text-center">
-              <p class="text-[13px] text-muted">Nenhum cartão cadastrado.</p>
-              <NuxtLink
-                v-if="isAdmin"
-                to="/cadastros?lista=cartoes"
-                class="mt-2 flex items-center gap-1 text-[13px] font-medium text-accent-text hover:underline"
-              >
-                Cadastrar cartão e orçamento <ArrowRight :size="14" />
-              </NuxtLink>
-            </div>
-          </section>
-        </div>
+          </header>
+          <GraficoMensal
+            v-if="indicadores"
+            :serie="indicadores.serieMensal"
+            :destaque="indicadores.mes"
+            @escolher="escolherMes"
+          />
+          <p v-else-if="erroIndicadores" class="py-16 text-center text-[13px] text-muted">
+            Não foi possível carregar o gráfico.
+          </p>
+          <div v-else class="skeleton h-52" />
+        </section>
 
         <!-- linha 2: por categoria e por empreendimento -->
         <div class="grid gap-4 lg:grid-cols-2">

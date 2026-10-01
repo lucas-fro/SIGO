@@ -39,7 +39,9 @@ dos comentários: português do Brasil.
   forma e setor; vencimento da compra = `vencimentoDaFatura` (contratos). `cartoes.recarga`:
   `mensal` tem orçamento por mês; `avulsa` não tem orçamento (fica 0) e vive do saldo =
   recargas (`recargas_cartao`, qualquer valor e dia, nunca no futuro; errada sai com
-  `removida_em`) menos os lançamentos ativos no cartão. Gasto fixo só
+  `removida_em`) menos os lançamentos ativos no cartão com data do gasto até hoje. A página
+  Cartão (`/cartao`) reúne cadastro, recargas, gastos fixos e a situação do mês
+  (`GET /cartoes/situacao`); o dashboard não mostra cartão. Gasto fixo só
   vira lançamento por `POST /lancamentos/lancar-fixos` (idempotente por mês, com advisory lock).
 - Campanha é detalhe secundário: fica no formulário, no detalhe (quando informada) e na
   exportação, não em filtros, colunas ou gráficos.
