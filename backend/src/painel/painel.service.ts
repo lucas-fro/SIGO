@@ -37,6 +37,11 @@ export class PainelService {
     const escopo = escopoDeSetor(usuario, lancamentos.setorId, setorId)
     const ativos = and(eq(lancamentos.situacao, 'ativo'), escopo)
     const doMes = and(ativos, between(lancamentos.dataGasto, inicio, fim))
+    // Categoria e empreendimento repartem o "gasto do mês", que no mês corrente vai até
+    // hoje: assim as fatias fecham com ele. O cartão é compromisso e conta o mês inteiro
+    // (o fixo lançado para o dia 15 já está comprometido).
+    const corteDoGasto = referencia === dia.slice(0, 7) ? dia : fim
+    const gastoDoMes = and(ativos, between(lancamentos.dataGasto, inicio, corteDoGasto))
     const soma = sql<string>`sum(${lancamentos.valorCentavos})::bigint`
 
     // Gasto fixo "lançado no mês": tem lançamento ativo com data do gasto no mês.
@@ -57,14 +62,14 @@ export class PainelService {
         .from(lancamentos)
         // Gasto sem categoria vira uma fatia própria: o total das fatias fecha com o do mês.
         .leftJoin(categorias, eq(categorias.id, lancamentos.categoriaId))
-        .where(doMes)
+        .where(gastoDoMes)
         .groupBy(categorias.id, categorias.nome)
         .orderBy(desc(soma)),
       this.db
         .select({ id: empreendimentos.id, nome: empreendimentos.nome, centavos: soma })
         .from(lancamentos)
         .leftJoin(empreendimentos, eq(empreendimentos.id, lancamentos.empreendimentoId))
-        .where(doMes)
+        .where(gastoDoMes)
         .groupBy(empreendimentos.id, empreendimentos.nome)
         .orderBy(desc(soma)),
       this.db

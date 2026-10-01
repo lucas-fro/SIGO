@@ -20,6 +20,15 @@ describe('vencimentoDaFatura', () => {
     expect(vencimentoDaFatura('2026-12-15', 10, 20)).toBe('2027-01-20')
     expect(vencimentoDaFatura('2027-01-29', 28, 31)).toBe('2027-02-28')
   })
+
+  it('fechamento 30 ou 31 num mês curto fecha no último dia dele', () => {
+    // Fevereiro fecha no dia 28: a compra do dia 28 já vai para a fatura seguinte.
+    expect(vencimentoDaFatura('2027-02-27', 30, 7)).toBe('2027-03-07')
+    expect(vencimentoDaFatura('2027-02-28', 30, 7)).toBe('2027-04-07')
+    // Abril fecha no dia 30 quando o fechamento é 31.
+    expect(vencimentoDaFatura('2026-04-29', 31, 10)).toBe('2026-05-10')
+    expect(vencimentoDaFatura('2026-04-30', 31, 10)).toBe('2026-06-10')
+  })
 })
 
 describe('diaDoMes', () => {

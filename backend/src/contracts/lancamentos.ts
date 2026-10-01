@@ -222,6 +222,8 @@ export interface DadosEvento {
   /** `pagamento_*`: número da parcela e a data registrada. */
   parcela?: number
   pagoEm?: string | null
+  /** `pagamento_*`: a data que havia antes (troca de data ou pagamento desfeito). */
+  pagoEmAnterior?: string | null
   /**
    * De onde veio, quando não foi digitado: `criado` pelo botão de gastos
    * fixos; `pagamento_registrado` pela conferência com o Sienge.

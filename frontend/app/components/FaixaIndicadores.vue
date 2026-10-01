@@ -23,7 +23,14 @@ import { useGastoSienge, useIndicadores } from '~/composables/useLancamentos'
 */
 const props = defineProps<{ mes?: string }>()
 
-const { data: indicadores, isPending: carregando } = useIndicadores(() => props.mes)
+const {
+  data: indicadores,
+  isPending: carregando,
+  isError: falhou,
+  error: erroIndicadores,
+} = useIndicadores(() => props.mes)
+/** Sem os indicadores (a busca falhou), o número vira traço: "R$ 0" pareceria um mês sem gasto. */
+const ou = (valor: string) => (indicadores.value ? valor : '—')
 const { data: sienge, isPending: carregandoSienge } = useGastoSienge(() => props.mes)
 
 const mesDosDados = computed(() => indicadores.value?.mes ?? props.mes ?? hoje().slice(0, 7))
@@ -160,7 +167,7 @@ const parcelasTexto = (n: number, sufixo: string) =>
     <StatTile
       :rotulo="rotuloGasto"
       :icone="Wallet"
-      :valor="reaisIndicador(indicadores?.gastoMes.centavos)"
+      :valor="ou(reaisIndicador(indicadores?.gastoMes.centavos))"
       :valor-exato="reais(indicadores?.gastoMes.centavos)"
       :variacao="variacao(indicadores?.gastoMes)"
       :legenda="legendaGasto"
@@ -178,7 +185,7 @@ const parcelasTexto = (n: number, sufixo: string) =>
     <StatTile
       :rotulo="rotuloAno"
       :icone="ChartColumnIncreasing"
-      :valor="reaisIndicador(indicadores?.gastoAno.centavos)"
+      :valor="ou(reaisIndicador(indicadores?.gastoAno.centavos))"
       :valor-exato="reais(indicadores?.gastoAno.centavos)"
       :variacao="variacao(indicadores?.gastoAno)"
       :legenda="legendaAno"
@@ -189,7 +196,7 @@ const parcelasTexto = (n: number, sufixo: string) =>
       :marca="marcaHoje"
       :icone="vencidas ? CircleAlert : ReceiptText"
       :tom="vencidas ? 'neg' : 'neutro'"
-      :valor="reaisIndicador(indicadores?.emAberto.centavos)"
+      :valor="ou(reaisIndicador(indicadores?.emAberto.centavos))"
       :valor-exato="
         vencidas
           ? `${reais(indicadores?.emAberto.centavos)}, dos quais ${reais(indicadores?.vencido.centavos)} vencidos`
@@ -203,7 +210,7 @@ const parcelasTexto = (n: number, sufixo: string) =>
       :marca="marcaHoje"
       :icone="CalendarClock"
       :tom="indicadores?.proximos7Dias.parcelas ? 'warn' : 'neutro'"
-      :valor="reaisIndicador(indicadores?.proximos7Dias.centavos)"
+      :valor="ou(reaisIndicador(indicadores?.proximos7Dias.centavos))"
       :valor-exato="reais(indicadores?.proximos7Dias.centavos)"
       :legenda="
         parcelasTexto(
@@ -214,4 +221,7 @@ const parcelasTexto = (n: number, sufixo: string) =>
       :carregando="carregando"
     />
   </section>
+  <p v-if="falhou && !indicadores" class="px-6 pt-3 text-[12.5px] text-neg" role="alert">
+    Não foi possível carregar os indicadores. {{ erroIndicadores?.message }}
+  </p>
 </template>

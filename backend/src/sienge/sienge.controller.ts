@@ -23,16 +23,16 @@ export class SiengeController {
 
   /** Situação da conferência de pagamentos: a última rodada e a próxima. */
   @Get('conferencia')
-  statusConferencia() {
-    return this.conferencia.status()
+  statusConferencia(@UsuarioAtual() usuario: UsuarioSessao) {
+    return this.conferencia.status(usuario)
   }
 
   /** Confere os pagamentos agora, sem esperar o horário. Responde na hora; a rodada segue em segundo plano. */
   @Post('conferencia')
   @Papeis('admin')
   @HttpCode(HttpStatus.ACCEPTED)
-  async conferirAgora() {
+  async conferirAgora(@UsuarioAtual() usuario: UsuarioSessao) {
     this.conferencia.iniciar('manual')
-    return this.conferencia.status()
+    return this.conferencia.status(usuario)
   }
 }

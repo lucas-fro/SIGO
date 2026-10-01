@@ -86,8 +86,21 @@ const primeiroVencimento = ref(hoje())
  */
 const vencimentoTocado = ref(false)
 const parcelas = ref<ParcelaForm[]>([{ valorCentavos: null, vencimento: hoje(), pagoEm: null }])
+/**
+ * A versão (atualizadoEm) do lançamento que preencheu o formulário. É ela que
+ * vai no salvar: o `inicial` é buscado de novo ao voltar para a aba, e mandar a
+ * versão nova com os dados velhos desfaria em silêncio o que mudou nesse meio
+ * tempo (um pagamento, a conferência com o Sienge).
+ */
+const versao = ref<string | null>(null)
+/**
+ * À vista: a caixa "já foi pago". Guardada à parte da data: apagar a data para
+ * digitar outra não pode desmarcar a caixa e sumir com o campo.
+ */
+const jaPagoMarcado = ref(false)
 
 function preencher(l: LancamentoDetalhe) {
+  versao.value = l.atualizadoEm
   Object.assign(form, {
     setorId: l.setor.id,
     descricao: l.descricao,
@@ -110,6 +123,7 @@ function preencher(l: LancamentoDetalhe) {
     vencimento: p.vencimento,
     pagoEm: p.pagoEm,
   }))
+  jaPagoMarcado.value = !!l.parcelas[0]?.pagoEm
 }
 
 /**
@@ -138,6 +152,25 @@ watch(
     }
   },
   { immediate: true },
+)
+
+// Trocou de setor: categoria, campanha e cartão do setor anterior não servem (a API
+// recusaria, e o campo apareceria em branco segurando o id antigo).
+watch(
+  () => form.setorId,
+  (novo, antigo) => {
+    if (antigo === null || novo === antigo || !cadastros.value) return
+    const c = cadastros.value
+    if (form.categoriaId && c.categorias.find((x) => x.id === form.categoriaId)?.setorId !== novo) {
+      form.categoriaId = null
+    }
+    if (form.campanhaId && c.campanhas.find((x) => x.id === form.campanhaId)?.setorId !== novo) {
+      form.campanhaId = null
+    }
+    if (form.cartaoId && c.cartoes.find((x) => x.id === form.cartaoId)?.setorId !== novo) {
+      form.cartaoId = null
+    }
+  },
 )
 
 /**
@@ -229,8 +262,9 @@ function aoMudarCartao() {
 
 /** À vista: "já foi pago" marca o pagamento na data do gasto (ou hoje, se o gasto é futuro). */
 const jaPago = computed({
-  get: () => !!parcelas.value[0]?.pagoEm,
+  get: () => jaPagoMarcado.value,
   set: (marcado: boolean) => {
+    jaPagoMarcado.value = marcado
     const primeira = parcelas.value[0]
     if (!primeira) return
     const dia = hoje()
@@ -241,6 +275,13 @@ const jaPago = computed({
       : null
   },
 })
+// A data chegou por outro caminho (leitura do comprovante): a caixa acompanha.
+watch(
+  () => parcelas.value[0]?.pagoEm,
+  (data) => {
+    if (data) jaPagoMarcado.value = true
+  },
+)
 
 const pagoEmUnica = computed({
   get: () => parcelas.value[0]?.pagoEm ?? '',
@@ -406,15 +447,41 @@ async function enviarArquivo(arquivo: File) {
   }
 }
 
+/**
+ * Os campos que a leitura preenche, como estavam quando ela começou. A leitura
+ * leva alguns segundos e o formulário continua editável: o que a pessoa digitar
+ * nesse meio tempo vale mais que o que a IA leu.
+ */
+function fotoDaLeitura() {
+  return {
+    descricao: form.descricao,
+    codigo: form.codigoIdentificacao,
+    observacao: form.observacao,
+    dataGasto: form.dataGasto,
+    fornecedorId: form.fornecedorId,
+    categoriaId: form.categoriaId,
+    empreendimentoId: form.empreendimentoId,
+    formaPagamentoId: form.formaPagamentoId,
+    pagamento: JSON.stringify([
+      form.valorCentavos,
+      quantidade.value,
+      primeiroVencimento.value,
+      parcelas.value,
+    ]),
+  }
+}
+type FotoDaLeitura = ReturnType<typeof fotoDaLeitura>
+
 async function lerComprovante(anexo: AnexoEnviado) {
   if (!form.setorId) return
   erroArquivo.value = null
   lendo.value = anexo.id
+  const antes = fotoDaLeitura()
   try {
     const resultado = await api.post<LeituraDocumento>(`/anexos/${anexo.id}/ler`, {
       setorId: form.setorId,
     })
-    aplicarLeitura(resultado, anexo.id)
+    aplicarLeitura(resultado, anexo.id, antes)
   } catch (e) {
     if (!(e instanceof ApiError)) throw e
     erroArquivo.value = `${e.message} O arquivo continua anexado.`
@@ -428,44 +495,59 @@ async function lerComprovante(anexo: AnexoEnviado) {
  * forma de pagamento vêm antes das parcelas, porque o vencimento sugerido
  * depende delas (a fatura do cartão, por exemplo).
  */
-function aplicarLeitura(l: LeituraDocumento, anexoId: number) {
+function aplicarLeitura(l: LeituraDocumento, anexoId: number, antes: FotoDaLeitura) {
   // A pessoa tirou o arquivo enquanto ele era lido: a leitura não vale mais.
   if (!comprovantes.value.some((c) => c.id === anexoId)) return
   const campos = new Set<string>()
   const marca = (campo: string) => campos.add(campo)
+  // Só entra no campo que ninguém mexeu enquanto a leitura rodava.
+  const agora = fotoDaLeitura()
+  const livre = (campo: keyof FotoDaLeitura) => agora[campo] === antes[campo]
 
-  if (l.descricao) {
+  if (l.descricao && livre('descricao')) {
     form.descricao = l.descricao
     marca('descricao')
   }
-  if (l.codigoIdentificacao) {
+  if (l.codigoIdentificacao && livre('codigo')) {
     form.codigoIdentificacao = l.codigoIdentificacao
     marca('codigo')
   }
-  if (l.observacao) {
+  if (l.observacao && livre('observacao')) {
     form.observacao = l.observacao
     marca('observacao')
   }
   // Emissão no futuro não serve como data do gasto: fica a de hoje.
-  if (l.dataGasto && l.dataGasto <= hoje()) {
+  if (l.dataGasto && l.dataGasto <= hoje() && livre('dataGasto')) {
     form.dataGasto = l.dataGasto
     marca('dataGasto')
   }
   // Fornecedor desativado a API recusa numa escolha nova: nesse caso fica em branco (e há aviso).
   const fornecedor = l.fornecedor && fornecedores.value?.find((f) => f.id === l.fornecedor!.id)
-  if (fornecedor?.ativo) {
+  if (fornecedor?.ativo && livre('fornecedorId')) {
     form.fornecedorId = fornecedor.id
     marca('fornecedor')
   }
-  if (l.categoriaId && categorias.value.some((c) => c.id === l.categoriaId)) {
+  if (
+    l.categoriaId &&
+    categorias.value.some((c) => c.id === l.categoriaId) &&
+    livre('categoriaId')
+  ) {
     form.categoriaId = l.categoriaId
     marca('categoria')
   }
-  if (l.empreendimentoId && empreendimentos.value.some((e) => e.id === l.empreendimentoId)) {
+  if (
+    l.empreendimentoId &&
+    empreendimentos.value.some((e) => e.id === l.empreendimentoId) &&
+    livre('empreendimentoId')
+  ) {
     form.empreendimentoId = l.empreendimentoId
     marca('empreendimento')
   }
-  if (l.formaPagamentoId && formas.value.some((f) => f.id === l.formaPagamentoId)) {
+  if (
+    l.formaPagamentoId &&
+    formas.value.some((f) => f.id === l.formaPagamentoId) &&
+    livre('formaPagamentoId')
+  ) {
     form.formaPagamentoId = l.formaPagamentoId
     aoMudarForma()
     marca('forma')
@@ -473,7 +555,9 @@ function aplicarLeitura(l: LeituraDocumento, anexoId: number) {
 
   const somaLida = l.parcelas.reduce((t, p) => t + p.valorCentavos, 0)
   const total = l.valorCentavos ?? (somaLida || null)
-  if (l.parcelas.length > 1 && total && somaLida === total) {
+  if (!livre('pagamento')) {
+    // Valor, parcelas e vencimento já mexidos pela pessoa: ficam como ela deixou.
+  } else if (l.parcelas.length > 1 && total && somaLida === total) {
     // Parcelas lidas que fecham com o total entram como estão, uma a uma.
     form.valorCentavos = total
     quantidade.value = l.parcelas.length
@@ -501,7 +585,7 @@ function aplicarLeitura(l: LeituraDocumento, anexoId: number) {
 
   // Comprovante de pagamento: a parcela já nasce paga, na data do comprovante.
   const primeira = parcelas.value[0]
-  if (l.pagoEm && parcelas.value.length === 1 && primeira) {
+  if (l.pagoEm && parcelas.value.length === 1 && primeira && livre('pagamento')) {
     primeira.pagoEm = l.pagoEm <= hoje() ? l.pagoEm : hoje()
     marca('pago')
   }
@@ -532,6 +616,45 @@ async function tirarComprovante(anexo: AnexoEnviado) {
   if (leitura.value?.anexoId === anexo.id) leitura.value = null
 }
 
+// ---------- não perder o que foi preenchido ----------
+
+/** A pessoa mexeu em algum campo (ou subiu comprovante) e ainda não salvou. */
+const alterado = ref(false)
+const temAlgoPorSalvar = computed(() => alterado.value || comprovantes.value.length > 0)
+
+function marcarAlterado() {
+  alterado.value = true
+}
+
+function avisarAoFechar(evento: BeforeUnloadEvent) {
+  if (!temAlgoPorSalvar.value) return
+  evento.preventDefault()
+  evento.returnValue = ''
+}
+
+/**
+ * Arquivo solto fora da área do comprovante: sem isto o navegador abre o PDF
+ * na aba e o formulário (e a leitura) se perde.
+ */
+function segurarArquivoSolto(evento: DragEvent) {
+  if (evento.dataTransfer?.types?.includes('Files')) evento.preventDefault()
+}
+
+onMounted(() => {
+  window.addEventListener('beforeunload', avisarAoFechar)
+  window.addEventListener('dragover', segurarArquivoSolto)
+  window.addEventListener('drop', segurarArquivoSolto)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', avisarAoFechar)
+  window.removeEventListener('dragover', segurarArquivoSolto)
+  window.removeEventListener('drop', segurarArquivoSolto)
+})
+onBeforeRouteLeave(() => {
+  if (!temAlgoPorSalvar.value) return true
+  return window.confirm('Sair sem salvar? O que foi preenchido neste lançamento será perdido.')
+})
+
 // ---------- gravar ----------
 
 const erros = ref<Record<string, string>>({})
@@ -559,15 +682,21 @@ async function salvar(confirmarDuplicidade = false) {
       pagoEm: p.pagoEm || null,
     })),
     ...(editando.value
-      ? { versao: props.inicial!.atualizadoEm }
+      ? { versao: versao.value }
       : { confirmarDuplicidade, anexoIds: comprovantes.value.map((c) => c.id) }),
   }
 
   const resultado = (editando.value ? lancamentoSchema : criarLancamentoSchema).safeParse(payload)
+  const saida: Record<string, string> = {}
   if (!resultado.success) {
-    const saida: Record<string, string> = {}
     for (const issue of resultado.error.issues)
       saida[issue.path.map(String).join('.')] ??= issue.message
+  }
+  // "Já foi pago" marcado com a data apagada: sem isto, gravaria como não pago.
+  if (parcelas.value.length === 1 && jaPagoMarcado.value && !parcelas.value[0]?.pagoEm) {
+    saida['parcelas.0.pagoEm'] ??= 'Informe a data do pagamento (ou desmarque "Já foi pago")'
+  }
+  if (!resultado.success || Object.keys(saida).length) {
     erros.value = saida
     erroGeral.value = 'Confira os campos destacados.'
     await focarPrimeiroErro()
@@ -582,6 +711,7 @@ async function salvar(confirmarDuplicidade = false) {
       : await api.post<LancamentoDetalhe>('/lancamentos', resultado.data)
     duplicados.value = null
     comprovantes.value = []
+    alterado.value = false
     sincronizar(detalhe)
     emit('salvo', detalhe)
   } catch (e) {
@@ -607,6 +737,8 @@ async function salvar(confirmarDuplicidade = false) {
     class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]"
     novalidate
     @submit.prevent="salvar()"
+    @input="marcarAlterado"
+    @change="marcarAlterado"
   >
     <div class="flex min-w-0 flex-col gap-5">
       <!-- Comprovante: sobe primeiro e, com a leitura ligada, preenche o formulário. -->
@@ -820,6 +952,8 @@ async function salvar(confirmarDuplicidade = false) {
               id="f-data"
               v-model="form.dataGasto"
               type="date"
+              min="2000-01-01"
+              max="2099-12-31"
               class="input tnum"
               :aria-invalid="!!erro('dataGasto') || undefined"
               @change="aoMudarDataGasto"
@@ -1024,6 +1158,8 @@ async function salvar(confirmarDuplicidade = false) {
               id="f-venc"
               v-model="primeiroVencimento"
               type="date"
+              min="2000-01-01"
+              max="2099-12-31"
               class="input tnum"
               :aria-invalid="!!erro('parcelas.0.vencimento') || undefined"
               @change="aoMudarPrimeiroVencimento"
@@ -1049,6 +1185,8 @@ async function salvar(confirmarDuplicidade = false) {
               id="f-pago"
               v-model="pagoEmUnica"
               type="date"
+              min="2000-01-01"
+              max="2099-12-31"
               class="input tnum"
               :aria-invalid="!!erro('parcelas.0.pagoEm') || undefined"
             />
@@ -1073,6 +1211,8 @@ async function salvar(confirmarDuplicidade = false) {
                   <input
                     v-model="p.vencimento"
                     type="date"
+                    min="2000-01-01"
+                    max="2099-12-31"
                     class="input input-sm tnum max-w-[170px]"
                     :aria-label="`Vencimento da parcela ${i + 1}`"
                     :aria-invalid="!!erro(`parcelas.${i}.vencimento`) || undefined"
@@ -1090,6 +1230,8 @@ async function salvar(confirmarDuplicidade = false) {
                   <input
                     v-model="p.pagoEm"
                     type="date"
+                    min="2000-01-01"
+                    max="2099-12-31"
                     class="input input-sm tnum max-w-[170px]"
                     :aria-label="`Pagamento da parcela ${i + 1}`"
                     :aria-invalid="!!erro(`parcelas.${i}.pagoEm`) || undefined"

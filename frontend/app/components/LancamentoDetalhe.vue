@@ -276,9 +276,13 @@ function frase(e: Evento): string {
     case 'pagamento_registrado':
       return e.dados?.origem === 'sienge'
         ? `conferiu no Sienge o pagamento da parcela ${e.dados?.parcela ?? ''}, feito em ${data(e.dados?.pagoEm)}${e.dados?.dataAproximada ? ' (data aproximada: a baixa não apareceu no extrato)' : ''}${e.dados?.tituloSienge ? `, título ${e.dados.tituloSienge}` : ''}`
-        : `registrou o pagamento da parcela ${e.dados?.parcela ?? ''} em ${data(e.dados?.pagoEm)}`
+        : e.dados?.pagoEmAnterior
+          ? `mudou o pagamento da parcela ${e.dados?.parcela ?? ''} de ${data(e.dados.pagoEmAnterior)} para ${data(e.dados?.pagoEm)}`
+          : `registrou o pagamento da parcela ${e.dados?.parcela ?? ''} em ${data(e.dados?.pagoEm)}`
     case 'pagamento_desfeito':
-      return `desfez o pagamento da parcela ${e.dados?.parcela ?? ''}`
+      return e.dados?.pagoEmAnterior
+        ? `desfez o pagamento da parcela ${e.dados?.parcela ?? ''} (estava pago em ${data(e.dados.pagoEmAnterior)})`
+        : `desfez o pagamento da parcela ${e.dados?.parcela ?? ''}`
     case 'anexo_adicionado':
       return `anexou o comprovante ${e.dados?.anexo ?? ''}`
     case 'anexo_removido':
@@ -310,7 +314,7 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
       </div>
 
       <h3
-        class="mt-3 text-[16px] leading-snug font-semibold text-ink"
+        class="mt-3 text-[16px] leading-snug font-semibold break-words text-ink"
         :class="!ativo && 'line-through decoration-ghost'"
       >
         {{ l.descricao }}
@@ -450,7 +454,7 @@ function valorAlterado(a: Alteracao, valor: unknown): string {
       </div>
       <div v-if="l.observacao" class="col-span-2">
         <dt class="eyebrow">Observação</dt>
-        <dd class="mt-1 whitespace-pre-line text-ink">{{ l.observacao }}</dd>
+        <dd class="mt-1 whitespace-pre-line break-words text-ink">{{ l.observacao }}</dd>
       </div>
     </dl>
 

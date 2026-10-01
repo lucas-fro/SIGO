@@ -207,5 +207,21 @@ describe('LeitorClaude', () => {
     await expect(limite.leitor.ler(PDF, 'application/pdf', CONTEXTO)).rejects.toThrow(
       /limite de uso/,
     )
+
+    // Sem crédito a Anthropic responde 400: não pode virar "arquivo protegido ou grande demais".
+    const semCredito = falso(
+      new Anthropic.BadRequestError(
+        400,
+        {
+          type: 'error',
+          error: { message: 'Your credit balance is too low to access the Anthropic API.' },
+        },
+        'Your credit balance is too low to access the Anthropic API.',
+        new Headers(),
+      ),
+    )
+    await expect(semCredito.leitor.ler(PDF, 'application/pdf', CONTEXTO)).rejects.toThrow(
+      /sem crédito/,
+    )
   })
 })

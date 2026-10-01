@@ -16,6 +16,7 @@ por onde o Caddy os alcança e por onde o backend fala com o Postgres.
 ```bash
 git clone <repositório> sigo && cd sigo
 cp .env.example .env
+openssl rand -base64 48   # copie o resultado para AUTH_SECRET no .env (obrigatório)
 nano .env          # DATABASE_URL aponta para o container `postgres`, não localhost
 chmod 600 .env
 # Pasta dos comprovantes, do usuário `node` do container (uid 1000). Sem isso o
@@ -51,20 +52,26 @@ Use `handle /api/*`, nunca `handle_path`: o Nest registra as rotas sob `/api`.
 ## Usuários
 
 O administrador vem do `.env` e tem a senha reaplicada a cada subida (é a forma
-de recuperar acesso). Os demais são cadastrados pela linha de comando; a senha
-entra pela variável `SENHA`, nunca como argumento, para não ficar no histórico:
+de recuperar acesso; a senha de exemplo do `.env.example` não sobe em produção).
+Os demais são cadastrados pela linha de comando. A senha entra pela variável
+`SENHA`, digitada sem eco: nunca como argumento nem escrita no comando, para não
+ficar no histórico do shell nem aparecer no `ps`:
 
 ```bash
+read -rs SENHA && export SENHA   # digite a senha e Enter (não aparece na tela)
+
 # alguém do Marketing que lança gastos
-docker compose exec -e SENHA='senha-dela' backend \
+docker compose exec -e SENHA backend \
   node dist/auth/cli.js criar maria@smart.com.br --nome="Maria Souza" --papel=editor --setores=marketing
 
 # diretoria, só consulta
-docker compose exec -e SENHA='senha' backend \
+docker compose exec -e SENHA backend \
   node dist/auth/cli.js criar diretoria@smart.com.br --nome="Diretoria" --papel=leitor --setores=marketing
 
+docker compose exec -e SENHA backend node dist/auth/cli.js senha maria@smart.com.br
+unset SENHA
+
 docker compose exec backend node dist/auth/cli.js listar
-docker compose exec -e SENHA='nova' backend node dist/auth/cli.js senha maria@smart.com.br
 docker compose exec backend node dist/auth/cli.js desativar maria@smart.com.br
 ```
 
@@ -80,19 +87,32 @@ requisição: a mudança vale na hora, sem esperar a sessão vencer.
 
 ## Sessão
 
-Cookie `httpOnly` assinado, válido por `AUTH_SESSION_DAYS` (7 por padrão), sem
-tabela de sessões: sobrevive ao restart e ninguém é deslogado quando sobe
-código. Depois de 8 tentativas erradas o IP fica bloqueado por 15 minutos.
+Cookie `httpOnly` assinado com o `AUTH_SECRET`, válido por `AUTH_SESSION_DAYS` (7
+por padrão), sem tabela de sessões: sobrevive ao restart e ninguém é deslogado quando
+sobe código. Sair, trocar a senha ou ser desativado derruba as sessões da pessoa em
+todos os aparelhos. Depois de 10 senhas erradas a conta fica bloqueada por 15 minutos (de
+qualquer IP); 30 erros saindo do mesmo IP bloqueiam o IP (folgado porque o escritório
+inteiro sai pelo mesmo IP público). Escrita vinda de navegador só é aceita com origem
+do próprio SIGO (proteção contra requisição forjada a partir de outro serviço do domínio).
 
 ## Atualizar depois de mexer no código
+
+As migrations rodam sozinhas na subida: faça o `pg_dump` do banco `sigo` antes.
 
 ```bash
 git pull
 # Só na primeira atualização depois dos comprovantes (não faz mal repetir):
 mkdir -p dados/comprovantes && sudo chown -R 1000:1000 dados
+# Só na primeira atualização depois do AUTH_SECRET obrigatório: sem ele o backend não
+# sobe. Gere (openssl rand -base64 48) e ponha no .env. Todo mundo entra de novo uma vez.
 docker compose build
 docker compose up -d
 ```
+
+Antes da primeira atualização de uma instalação antiga, confira que as migrations já
+aplicadas estão registradas (senão o backend tenta aplicar tudo de novo e não sobe):
+`select created_at from drizzle.__drizzle_migrations order by created_at` precisa listar
+as que já rodaram.
 
 Se a pasta estiver sem permissão, o log do backend avisa na subida ("a pasta dos
 comprovantes … não aceita escrita").
@@ -107,18 +127,21 @@ Mudou só o backend? `docker compose build backend && docker compose up -d backe
   `backend/src/contracts`. O `.dockerignore` da raiz mantém o contexto leve.
 - **Backup**: o banco `sigo` fica no Postgres compartilhado; entre na rotina de
   `pg_dump` que já existir para os outros bancos. **A pasta `dados/comprovantes` também
-  precisa de backup**: o banco só guarda o registro, o arquivo está nela.
+  precisa de backup**: o banco só guarda o registro, o arquivo está nela. Guarde também
+  o `.env` (em lugar seguro): sem o mesmo `AUTH_SECRET`, a chave da IA do banco não abre.
+- **Banco já criado**: o `create-database` primeiro tenta entrar no próprio banco e só usa
+  a base administrativa (`postgres`) quando ele não existe. Se o Postgres compartilhado não
+  deixa o usuário do SIGO criar banco, crie à mão uma vez e ponha `CREATE_DATABASE=false`.
 - **Pasta dos comprovantes**: `dados/comprovantes` na pasta do projeto, montada em
   `/app/dados/comprovantes` pelo compose. Precisa ser do uid 1000 (o usuário `node`
   do container); o comando está nos blocos de deploy acima.
 - **Leitura por IA**: o admin liga em Cadastros → Leitura por IA, colando a chave da API
   (OpenAI por padrão; Anthropic também serve). A chave é conferida na própria API antes de
-  salvar e fica no banco cifrada com o `AUTH_SECRET` (sem ele, com a `ADMIN_PASSWORD`):
-  trocar esse segredo deixa a chave ilegível, e a tela pede para colar de novo. Por isso,
-  defina um `AUTH_SECRET` fixo em produção. O backend precisa de saída HTTPS para
+  salvar e fica no banco cifrada com o `AUTH_SECRET`: trocar esse segredo deixa a chave
+  ilegível, e a tela pede para colar de novo. O backend precisa de saída HTTPS para
   `api.openai.com` (ou `api.anthropic.com`). Sem chave, o arquivo continua sendo anexado.
-  Se houver proxy com tempo limite curto na frente da API, deixe ao menos 2 minutos para
-  a rota `/api/anexos/:id/ler`.
+  Se houver proxy com tempo limite curto na frente da API, deixe ao menos 5 minutos para
+  a rota `/api/anexos/:id/ler` (até 3 tentativas de 90 s). O Caddy não tem limite padrão.
 - **`npm run db:exemplo` recusa rodar com `NODE_ENV=production`** e em banco que
   já tenha lançamento: dados de exemplo nunca chegam à produção.
 - **Sienge**: `SIENGE_SUBDOMAIN`, `SIENGE_USER` e `SIENGE_PASSWORD` no `.env` ligam o

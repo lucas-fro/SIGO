@@ -31,7 +31,11 @@ function escolherMes(novo: string) {
   void router.replace({ query: { ...route.query, mes: novo === mesCorrente ? undefined : novo } })
 }
 
-const { data: indicadores, isPlaceholderData: trocandoIndicadores } = useIndicadores(mes)
+const {
+  data: indicadores,
+  isPlaceholderData: trocandoIndicadores,
+  isError: erroIndicadores,
+} = useIndicadores(mes)
 const {
   data: painel,
   isPending: carregando,
@@ -55,13 +59,17 @@ const subtitulo = computed(() => {
   return `${escopo} · mês em andamento, dia ${Number(dia.slice(8))} de ${Number(fimDoMes(dia).slice(8))}`
 })
 
-/** Os lançamentos do mês escolhido, no Histórico. */
+/**
+ * Os lançamentos do mês escolhido, no Histórico. No mês corrente, até hoje: é o
+ * mesmo corte do "Gasto em <mês>", então a soma da lista bate com o número.
+ */
 const linkLancamentos = computed(() => ({
   path: '/historico',
-  query:
-    mes.value === mesCorrente
-      ? { periodo: 'mes' }
-      : { periodo: 'personalizado', de: `${mes.value}-01`, ate: fimDoMes(`${mes.value}-01`) },
+  query: {
+    periodo: 'personalizado',
+    de: `${mes.value}-01`,
+    ate: mes.value === mesCorrente ? hoje() : fimDoMes(`${mes.value}-01`),
+  },
 }))
 
 const dicaGrafico = computed(() => {
@@ -154,6 +162,9 @@ const mesDaData = (iso: string) => MESES_CURTOS[Number(iso.slice(5, 7)) - 1] ?? 
               :destaque="indicadores.mes"
               @escolher="escolherMes"
             />
+            <p v-else-if="erroIndicadores" class="py-16 text-center text-[13px] text-muted">
+              Não foi possível carregar o gráfico.
+            </p>
             <div v-else class="skeleton h-52" />
           </section>
 

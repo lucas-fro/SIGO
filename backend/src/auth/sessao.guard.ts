@@ -11,7 +11,7 @@ import type { Papel } from '../contracts/auth.js'
 import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
 import { CHAVE_PAPEIS, CHAVE_PUBLICO, type RequisicaoComUsuario } from './decorators.js'
-import { readSessionCookie, userIdFromToken } from './session.js'
+import { lerToken, readSessionCookie } from './session.js'
 import { carregarSessao } from './usuarios.js'
 
 /**
@@ -36,11 +36,11 @@ export class SessaoGuard implements CanActivate {
     if (this.reflector.getAllAndOverride<boolean>(CHAVE_PUBLICO, alvos)) return true
 
     const req = ctx.switchToHttp().getRequest<RequisicaoComUsuario>()
-    const id = userIdFromToken(readSessionCookie(req.headers.cookie))
-    if (id === undefined) throw new UnauthorizedException('Sessão expirada ou ausente')
+    const token = lerToken(readSessionCookie(req.headers.cookie))
+    if (!token) throw new UnauthorizedException('Sessão expirada ou ausente')
 
-    const usuario = await carregarSessao(this.db, id)
-    // Sessão assinada e no prazo, mas a conta foi desativada.
+    const usuario = await carregarSessao(this.db, token.uid, token.versao)
+    // Sessão assinada e no prazo, mas a conta foi desativada, saiu ou trocou a senha.
     if (!usuario) throw new UnauthorizedException('Acesso revogado')
     req.usuario = usuario
 

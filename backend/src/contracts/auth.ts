@@ -20,8 +20,15 @@ export const ROTULO_PAPEL: Record<Papel, string> = {
 }
 
 export const loginSchema = z.object({
-  email: z.string({ error: 'Informe o e-mail' }).trim().min(1, { error: 'Informe o e-mail' }),
-  senha: z.string({ error: 'Informe a senha' }).min(1, { error: 'Informe a senha' }),
+  email: z
+    .string({ error: 'Informe o e-mail' })
+    .trim()
+    .min(1, { error: 'Informe o e-mail' })
+    .max(254, { error: 'E-mail longo demais' }),
+  senha: z
+    .string({ error: 'Informe a senha' })
+    .min(1, { error: 'Informe a senha' })
+    .max(200, { error: 'Senha longa demais' }),
 })
 
 export interface SetorRef {

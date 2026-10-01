@@ -36,7 +36,7 @@ const PESOS_CNPJ_2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
 
 function cnpjValido(cnpj: string): boolean {
   if (!/^[0-9A-Z]{12}\d{2}$/.test(cnpj) || /^(\d)\1{13}$/.test(cnpj)) return false
-  const valores = [...cnpj.slice(0, 12)].map((c) => c.charCodeAt(0) - 48)
+  const valores = Array.from(cnpj.slice(0, 12), (c) => c.charCodeAt(0) - 48)
   const d1 = digitoModulo11(valores, PESOS_CNPJ_1)
   const d2 = digitoModulo11([...valores, d1], PESOS_CNPJ_2)
   return cnpj.slice(12) === `${d1}${d2}`

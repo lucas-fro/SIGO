@@ -187,6 +187,16 @@ describe('LeitorOpenAI', () => {
     await expect(semCredito.leitor.ler(PDF, 'application/pdf', CONTEXTO)).rejects.toThrow(
       /sem crédito/,
     )
+    // A mensagem que a OpenAI manda hoje para conta zerada (sem o código insufficient_quota).
+    const zerada = falso(
+      new OpenAI.RateLimitError(
+        429,
+        undefined,
+        'You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.',
+        new Headers(),
+      ),
+    )
+    await expect(zerada.leitor.ler(PDF, 'application/pdf', CONTEXTO)).rejects.toThrow(/sem crédito/)
 
     const limite = falso(new OpenAI.RateLimitError(429, {}, 'Rate limit reached', new Headers()))
     await expect(limite.leitor.ler(PDF, 'application/pdf', CONTEXTO)).rejects.toThrow(

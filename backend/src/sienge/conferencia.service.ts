@@ -6,7 +6,9 @@ import {
   type OnApplicationShutdown,
 } from '@nestjs/common'
 import { and, asc, between, desc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { escopoDeSetor } from '../common/acesso.js'
 import { env } from '../config/env.js'
+import type { UsuarioSessao } from '../contracts/auth.js'
 import { hoje, somarDias, somarMesesAoMes } from '../contracts/datas.js'
 import type {
   DetalheConferencia,
@@ -192,13 +194,45 @@ export class ConferenciaService implements OnApplicationBootstrap, OnApplication
     this.relogio.unref()
   }
 
-  async status(): Promise<StatusConferencia> {
+  /**
+   * A situação para a tela. Quem não é admin vê só o que é dos setores dele:
+   * as pendências citam lançamentos (e as falhas, fornecedores) de todos os setores.
+   */
+  async status(usuario: UsuarioSessao): Promise<StatusConferencia> {
     const [ultima] = await this.db
       .select()
       .from(siengeConferencias)
       .orderBy(desc(siengeConferencias.inicio))
       .limit(1)
     const { proximo } = horariosEmTorno(new Date(), env.SIENGE_CONFERENCIA_HORARIOS)
+    let detalhe = ultima?.detalhe ?? null
+    if (detalhe && usuario.papel !== 'admin') {
+      const citados = [
+        ...detalhe.ambiguos.map((a) => a.lancamentoId),
+        ...detalhe.pagasSemMovimento.map((p) => p.lancamentoId),
+      ]
+      const visiveis = new Set(
+        citados.length
+          ? (
+              await this.db
+                .select({ id: lancamentos.id })
+                .from(lancamentos)
+                .where(
+                  and(
+                    inArray(lancamentos.id, citados),
+                    escopoDeSetor(usuario, lancamentos.setorId),
+                  ),
+                )
+            ).map((l) => l.id)
+          : [],
+      )
+      detalhe = {
+        ...detalhe,
+        ambiguos: detalhe.ambiguos.filter((a) => visiveis.has(a.lancamentoId)),
+        pagasSemMovimento: detalhe.pagasSemMovimento.filter((p) => visiveis.has(p.lancamentoId)),
+        falhas: [],
+      }
+    }
     return {
       ligada: this.ligada,
       horarios: env.SIENGE_CONFERENCIA_HORARIOS,
@@ -214,7 +248,7 @@ export class ConferenciaService implements OnApplicationBootstrap, OnApplication
             vinculados: ultima.vinculados,
             pagas: ultima.pagas,
             erro: ultima.erro,
-            detalhe: ultima.detalhe ?? null,
+            detalhe,
           }
         : null,
     }

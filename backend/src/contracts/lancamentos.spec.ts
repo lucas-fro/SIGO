@@ -66,6 +66,17 @@ describe('criarLancamentoSchema', () => {
     const descricao = r.error?.issues.find((i) => i.path[0] === 'descricao')
     expect(descricao?.message).toBe('Descreva o gasto em poucas palavras (mínimo 3 letras)')
   })
+
+  it('recusa ano fora de 2000–2099 (ano de dois dígitos digitado no campo de data)', () => {
+    const r = criarLancamentoSchema.safeParse({ ...valido, dataGasto: '0026-03-15' })
+    expect(r.success).toBe(false)
+    expect(r.error?.issues.find((i) => i.path[0] === 'dataGasto')?.message).toMatch(/2000 e 2099/)
+    const venc = criarLancamentoSchema.safeParse({
+      ...valido,
+      parcelas: [{ valorCentavos: 150_000, vencimento: '2126-01-01' }],
+    })
+    expect(venc.success).toBe(false)
+  })
 })
 
 describe('listarLancamentosSchema', () => {

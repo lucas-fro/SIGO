@@ -1,8 +1,11 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { PAPEIS, type Papel, type SetorRef, type UsuarioSessao } from '../contracts/auth.js'
 import type { Database } from '../db/client.js'
 import { setores, usuarioSetores, usuarios } from '../db/schema.js'
-import { hashPassword } from './password.js'
+import { hashPassword, verifyPassword } from './password.js'
+
+/** Aumenta a versão das sessões: todo cookie emitido antes deixa de valer. */
+const novaVersao = sql`${usuarios.sessaoVersao} + 1`
 
 /** O e-mail é normalizado na escrita e na leitura; sem isso o índice único deixaria passar duplicata por maiúscula. */
 export const normalizarEmail = (email: string): string => email.trim().toLowerCase()
@@ -19,6 +22,7 @@ export interface UsuarioComSenha {
   email: string
   papel: Papel
   senhaHash: string
+  sessaoVersao: number
 }
 
 export async function buscarAtivoPorEmail(
@@ -37,6 +41,7 @@ export async function buscarAtivoPorEmail(
     email: row.email,
     papel: paraPapel(row.papel),
     senhaHash: row.senhaHash,
+    sessaoVersao: row.sessaoVersao,
   }
 }
 
@@ -47,7 +52,12 @@ export async function buscarAtivoPorEmail(
  * o preço delas é o que faz desativar alguém ou tirar um setor valer na
  * requisição seguinte, em vez de só quando a sessão vencer.
  */
-export async function carregarSessao(db: Database, id: number): Promise<UsuarioSessao | undefined> {
+export async function carregarSessao(
+  db: Database,
+  id: number,
+  /** A versão que veio no cookie; sem ela (logo depois do login), não confere. */
+  versao?: number,
+): Promise<UsuarioSessao | undefined> {
   const [row] = await db
     .select({
       id: usuarios.id,
@@ -55,11 +65,14 @@ export async function carregarSessao(db: Database, id: number): Promise<UsuarioS
       email: usuarios.email,
       papel: usuarios.papel,
       ativo: usuarios.ativo,
+      sessaoVersao: usuarios.sessaoVersao,
     })
     .from(usuarios)
     .where(eq(usuarios.id, id))
     .limit(1)
   if (!row || !row.ativo) return undefined
+  // Cookie de antes de sair, trocar a senha ou ser desativado.
+  if (versao !== undefined && versao !== row.sessaoVersao) return undefined
 
   const papel = paraPapel(row.papel)
   const campos = { id: setores.id, nome: setores.nome, slug: setores.slug }
@@ -84,6 +97,10 @@ export async function carregarSessao(db: Database, id: number): Promise<UsuarioS
 export const registrarAcesso = (db: Database, id: number): Promise<unknown> =>
   db.update(usuarios).set({ ultimoAcessoEm: new Date() }).where(eq(usuarios.id, id))
 
+/** Derruba todas as sessões abertas da pessoa (sair). */
+export const encerrarSessoes = (db: Database, id: number): Promise<unknown> =>
+  db.update(usuarios).set({ sessaoVersao: novaVersao }).where(eq(usuarios.id, id))
+
 /**
  * Cria ou atualiza pelo e-mail. Com `setores` (slugs), a lista de setores da
  * pessoa passa a ser exatamente essa.
@@ -93,7 +110,16 @@ export async function salvarUsuario(
   entrada: { email: string; senha?: string; papel: Papel; nome: string; setores?: string[] },
 ): Promise<{ email: string; criado: boolean }> {
   const email = normalizarEmail(entrada.email)
-  const senhaHash = entrada.senha ? await hashPassword(entrada.senha) : undefined
+  const [antes] = await db
+    .select({ senhaHash: usuarios.senhaHash })
+    .from(usuarios)
+    .where(eq(usuarios.email, email))
+    .limit(1)
+  // A senha do admin é reaplicada a cada subida do container: só regrava (e derruba as
+  // sessões) quando ela mudou de verdade.
+  const senhaMudou =
+    !!entrada.senha && (!antes || !(await verifyPassword(entrada.senha, antes.senhaHash)))
+  const senhaHash = senhaMudou ? await hashPassword(entrada.senha!) : undefined
 
   return db.transaction(async (tx) => {
     const [existente] = await tx
@@ -111,7 +137,7 @@ export async function salvarUsuario(
           papel: entrada.papel,
           ativo: true,
           atualizadoEm: new Date(),
-          ...(senhaHash ? { senhaHash } : {}),
+          ...(senhaHash ? { senhaHash, sessaoVersao: novaVersao } : {}),
         })
         .where(eq(usuarios.id, existente.id))
       id = existente.id
@@ -147,18 +173,24 @@ export async function salvarUsuario(
 }
 
 export async function trocarSenha(db: Database, email: string, senha: string): Promise<boolean> {
+  // Senha nova derruba as sessões abertas (inclusive a de quem soube da senha antiga).
   const result = await db
     .update(usuarios)
-    .set({ senhaHash: await hashPassword(senha), atualizadoEm: new Date() })
+    .set({
+      senhaHash: await hashPassword(senha),
+      sessaoVersao: novaVersao,
+      atualizadoEm: new Date(),
+    })
     .where(eq(usuarios.email, normalizarEmail(email)))
     .returning({ id: usuarios.id })
   return result.length > 0
 }
 
 export async function definirAtivo(db: Database, email: string, ativo: boolean): Promise<boolean> {
+  // Desativar derruba as sessões: reativar depois não ressuscita um cookie antigo.
   const result = await db
     .update(usuarios)
-    .set({ ativo, atualizadoEm: new Date() })
+    .set({ ativo, atualizadoEm: new Date(), ...(ativo ? {} : { sessaoVersao: novaVersao }) })
     .where(eq(usuarios.email, normalizarEmail(email)))
     .returning({ id: usuarios.id })
   return result.length > 0

@@ -238,6 +238,14 @@ const inicio = computed(() => (lista.value?.total ? (pagina.value - 1) * POR_PAG
 const fim = computed(() => Math.min(pagina.value * POR_PAGINA, lista.value?.total ?? 0))
 const totalPaginas = computed(() => Math.max(1, Math.ceil((lista.value?.total ?? 0) / POR_PAGINA)))
 
+// A página ficou além do fim (o último item dela foi pago, cancelado, ou o link é
+// antigo): volta para a última página que tem itens, em vez de mostrar a lista vazia.
+watch(lista, (l) => {
+  if (l && !l.itens.length && l.total > 0 && pagina.value > totalPaginas.value) {
+    atualizar({ pagina: totalPaginas.value > 1 ? totalPaginas.value : undefined })
+  }
+})
+
 // ---------- painel de detalhe ----------
 
 const idAberto = computed(() => numero('id') ?? null)

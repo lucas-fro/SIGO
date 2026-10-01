@@ -33,10 +33,15 @@ const schema = z.object({
   ADMIN_NAME: z.string().default('Administrador'),
 
   /**
-   * Chave que assina o cookie de sessão. Em branco, é derivada da senha do
-   * administrador, e trocar aquela senha derruba as sessões abertas.
+   * Segredo do servidor: assina o cookie de sessão e cifra a chave da IA no
+   * banco. Obrigatório e aleatório (openssl rand -base64 48). Nunca derivado da
+   * senha de login: quem tem um cookie poderia adivinhar a senha fora do ar.
+   * Trocar derruba as sessões e pede a chave da IA de novo.
    */
-  AUTH_SECRET: z.string().min(16).optional(),
+  AUTH_SECRET: z
+    .string({ error: 'obrigatório: gere com  openssl rand -base64 48' })
+    .trim()
+    .min(32, { error: 'use pelo menos 32 caracteres aleatórios (openssl rand -base64 48)' }),
   AUTH_SESSION_DAYS: z.coerce.number().int().positive().default(7),
 
   /* 3340 para não disputar porta com o Painel Sienge (3333) na mesma máquina. */
@@ -86,7 +91,18 @@ const schema = z.object({
   COMPROVANTES_DIR: z.string().default('dados/comprovantes'),
 })
 
-const parsed = schema.safeParse(process.env)
+const parsed = schema
+  .superRefine((v, ctx) => {
+    // A senha de exemplo do .env.example não pode ir para produção.
+    if (process.env.NODE_ENV === 'production' && v.ADMIN_PASSWORD === 'troque-esta-senha') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ADMIN_PASSWORD'],
+        message: 'troque a senha de exemplo do .env.example',
+      })
+    }
+  })
+  .safeParse(process.env)
 
 if (!parsed.success) {
   const issues = parsed.error.issues

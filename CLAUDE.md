@@ -23,7 +23,14 @@ dos comentários: português do Brasil.
   num lançamento grava uma linha em `eventos` (criado, editado com antes/depois, pagamento,
   cancelamento).
 - Permissão = papel (`admin`/`editor`/`leitor`) + setor. A guarda global exige sessão;
-  as checagens de setor ficam nos serviços (`common/acesso.ts`, `escopoDeSetor`).
+  as checagens de setor ficam nos serviços (`common/acesso.ts`, `escopoDeSetor`). Tudo
+  que devolve dado de lançamento filtra pelo setor, inclusive o aviso de duplicado e as
+  pendências da conferência.
+- Sessão e segurança (`src/auth/`, `main.ts`): `AUTH_SECRET` é obrigatório e nenhuma chave
+  sai de senha de login. O cookie leva `usuarios.sessao_versao`: sair, trocar a senha ou
+  desativar aumenta o número e derruba as sessões. O freio de login ocupa a tentativa
+  antes de conferir a senha (por IP e por conta). Escrita vinda de navegador só com
+  `Origin` do próprio SIGO ou do `CORS_ORIGIN` (CSRF); o corpo é só JSON ou multipart.
 - Lançamento: só descrição e valor são obrigatórios. Categoria, forma de pagamento,
   empreendimento, fornecedor, campanha e cartão são opcionais (null); data do gasto vazia
   vale `hoje()`. Tudo que lista ou soma lançamentos usa `leftJoin` nesses cadastros, e o

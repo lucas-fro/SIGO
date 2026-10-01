@@ -165,6 +165,13 @@ function paraErroLeitura(erro: unknown): ErroLeitura {
   if (erro instanceof Anthropic.APIConnectionError) {
     return new ErroLeitura('Sem conexão com a leitura automática agora; tente de novo.', e.message)
   }
+  // Sem crédito, a Anthropic responde 400 ("Your credit balance is too low"): não é o arquivo.
+  if (erro instanceof Anthropic.APIError && /credit balance|billing/i.test(e.message)) {
+    return new ErroLeitura(
+      'A conta da Anthropic está sem crédito. O administrador precisa adicionar crédito em console.anthropic.com (Billing).',
+      e.message,
+    )
+  }
   if (erro instanceof Anthropic.BadRequestError) {
     return new ErroLeitura(
       'Este arquivo não pôde ser lido (protegido por senha ou grande demais?).',

@@ -94,7 +94,9 @@ export function vencimentoDaFatura(
   diaVencimento: number,
 ): string {
   const [, , dia] = partes(dataCompra)
-  const mesesAteFechar = dia < diaFechamento ? 0 : 1
+  // Fechamento 30 ou 31 num mês mais curto fecha no último dia dele (28/02 fecha a fatura).
+  const fechamentoNoMes = Math.min(diaFechamento, Number(fimDoMes(dataCompra).slice(8, 10)))
+  const mesesAteFechar = dia < fechamentoNoMes ? 0 : 1
   const mesesAteVencer = mesesAteFechar + (diaVencimento > diaFechamento ? 0 : 1)
   return diaDoMes(somarMeses(inicioDoMes(dataCompra), mesesAteVencer), diaVencimento)
 }

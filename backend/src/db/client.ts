@@ -11,6 +11,9 @@ import * as schema from './schema.js'
  */
 export function conectar(url: string) {
   const pool = new pg.Pool({ connectionString: url, max: 10 })
+  // Conexão ociosa derrubada pelo Postgres (reinício, manutenção, rede) emite 'error' no
+  // pool; sem ouvinte, o Node encerra o processo. O pool descarta a conexão e abre outra.
+  pool.on('error', (erro) => console.error(`[postgres] conexão ociosa caiu: ${erro.message}`))
   const db = drizzle(pool, { schema })
   return { pool, db }
 }

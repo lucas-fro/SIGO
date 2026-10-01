@@ -12,18 +12,43 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common'
+import { randomBytes } from 'node:crypto'
 import type { Request, Response } from 'express'
 import { zodDto } from '../common/validacao.js'
 import { loginSchema, type UsuarioSessao } from '../contracts/auth.js'
 import type { Database } from '../db/client.js'
 import { DB } from '../db/database.module.js'
 import { Publico, UsuarioAtual } from './decorators.js'
-import { atrasoDeFalha, limparFalhas, registrarFalha, tempoBloqueado } from './freio-login.js'
-import { verifyPassword } from './password.js'
-import { clearedCookie, issueToken, sessionCookie } from './session.js'
-import { buscarAtivoPorEmail, carregarSessao, registrarAcesso } from './usuarios.js'
+import {
+  atrasoDeFalha,
+  chaveDoIp,
+  iniciarTentativa,
+  tempoBloqueado,
+  tentativaEncerrada,
+  tentativaFalhou,
+  type Chave,
+} from './freio-login.js'
+import { hashPassword, verifyPassword } from './password.js'
+import { clearedCookie, issueToken, lerToken, readSessionCookie, sessionCookie } from './session.js'
+import {
+  buscarAtivoPorEmail,
+  carregarSessao,
+  encerrarSessoes,
+  normalizarEmail,
+  registrarAcesso,
+} from './usuarios.js'
 
 class LoginDto extends zodDto(loginSchema) {}
+
+/**
+ * Hash de uma senha qualquer, para conferir quando o e-mail não existe: o
+ * scrypt leva o mesmo tempo nos dois casos e a resposta não entrega quais
+ * contas existem.
+ */
+const hashFicticio = hashPassword(randomBytes(18).toString('base64url')).catch(
+  // Promessa criada na carga do módulo: sem catch, uma falha derrubaria a API.
+  () => 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+)
 
 @Controller('auth')
 export class AuthController {
@@ -39,8 +64,9 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ usuario: UsuarioSessao }> {
-    const ip = req.ip ?? 'desconhecido'
-    const bloqueio = tempoBloqueado(ip)
+    const ip = chaveDoIp(req.ip ?? 'desconhecido')
+    const chaves: Chave[] = [`ip:${ip}`, `conta:${normalizarEmail(body.email)}`]
+    const bloqueio = tempoBloqueado(...chaves)
     if (bloqueio > 0) {
       throw new HttpException(
         {
@@ -49,32 +75,48 @@ export class AuthController {
         HttpStatus.TOO_MANY_REQUESTS,
       )
     }
-
-    const usuario = await buscarAtivoPorEmail(this.db, body.email)
-    // Mesma resposta para e-mail inexistente e senha errada: distinguir os dois
-    // diria a um estranho quais contas existem.
-    const confere = usuario ? await verifyPassword(body.senha, usuario.senhaHash) : false
+    // Ocupa lugar no limite antes de qualquer espera: pedidos em paralelo não passam
+    // todos pela checagem acima.
+    iniciarTentativa(...chaves)
+    let usuario: Awaited<ReturnType<typeof buscarAtivoPorEmail>>
+    let confere = false
+    try {
+      usuario = await buscarAtivoPorEmail(this.db, body.email)
+      confere = await verifyPassword(body.senha, usuario?.senhaHash ?? (await hashFicticio))
+    } catch (erro) {
+      tentativaEncerrada(...chaves)
+      throw erro
+    }
 
     if (!usuario || !confere) {
-      registrarFalha(ip)
+      tentativaFalhou(...chaves)
       await atrasoDeFalha()
-      this.logger.warn(`login recusado: ${body.email} (ip ${ip})`)
+      // JSON.stringify: quebra de linha no e-mail não forja linha no log.
+      this.logger.warn(`login recusado: ${JSON.stringify(body.email)} (ip ${ip})`)
       throw new UnauthorizedException('E-mail ou senha incorretos')
     }
 
-    limparFalhas(ip)
+    tentativaEncerrada(...chaves)
     await registrarAcesso(this.db, usuario.id)
     const sessao = await carregarSessao(this.db, usuario.id)
     if (!sessao) throw new UnauthorizedException('Acesso revogado')
 
-    res.setHeader('Set-Cookie', sessionCookie(issueToken(usuario.id)))
+    res.setHeader('Set-Cookie', sessionCookie(issueToken(usuario.id, usuario.sessaoVersao)))
     return { usuario: sessao }
   }
 
+  /** Sair derruba as sessões da pessoa em todos os aparelhos (o cookie copiado também deixa de valer). */
   @Publico()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@Res({ passthrough: true }) res: Response): { usuario: null } {
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ usuario: null }> {
+    const token = lerToken(readSessionCookie(req.headers.cookie))
+    if (token && (await carregarSessao(this.db, token.uid, token.versao))) {
+      await encerrarSessoes(this.db, token.uid)
+    }
     res.setHeader('Set-Cookie', clearedCookie())
     return { usuario: null }
   }

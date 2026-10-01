@@ -43,7 +43,8 @@ watch(
 
 /** Teto "redondo" do eixo (1, 2, 2,5 ou 5 × 10ⁿ), para as linhas de grade caírem em números legíveis. */
 function tetoBonito(valor: number): number {
-  if (valor <= 0) return 100
+  // Sem gasto nenhum: um eixo de R$ 1 mil (com R$ 1 o rótulo do meio arredondaria para R$ 1 também).
+  if (valor <= 0) return 100_000
   const ordem = 10 ** Math.floor(Math.log10(valor))
   const f = valor / ordem
   const passo = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10

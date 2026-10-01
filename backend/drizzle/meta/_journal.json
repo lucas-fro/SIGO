@@ -64,6 +64,13 @@
       "when": 1790791539907,
       "tag": "0008_casamento_por_provas",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790876546092,
+      "tag": "0009_sessao_versao",
+      "breakpoints": true
     }
   ]
 }

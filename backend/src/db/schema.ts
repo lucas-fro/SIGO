@@ -55,6 +55,11 @@ export const usuarios = pgTable(
     senhaHash: text('senha_hash').notNull(),
     papel: text('papel').$type<Papel>().notNull().default('leitor'),
     ativo: boolean('ativo').notNull().default(true),
+    /**
+     * Versão das sessões da pessoa. O cookie leva a versão em que foi emitido;
+     * sair, trocar a senha ou ser desativado aumenta o número e derruba todas.
+     */
+    sessaoVersao: integer('sessao_versao').notNull().default(0),
     ultimoAcessoEm: timestamp('ultimo_acesso_em', { withTimezone: true }),
     criadoEm: criadoEm(),
     atualizadoEm: timestamp('atualizado_em', { withTimezone: true }),

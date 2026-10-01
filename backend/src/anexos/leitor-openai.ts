@@ -157,9 +157,14 @@ function paraErroLeitura(erro: unknown): ErroLeitura {
     )
   }
   if (erro instanceof OpenAI.RateLimitError) {
-    // 429 da OpenAI também é crédito acabado (insufficient_quota).
-    return erro.code === 'insufficient_quota' || /quota/i.test(e.message)
-      ? new ErroLeitura('A conta da OpenAI está sem crédito; avise o administrador.', e.message)
+    // 429 da OpenAI também é crédito acabado ("insufficient_quota", "You have no credits
+    // remaining"): esperar não resolve, alguém precisa pôr crédito na conta.
+    return /insufficient_quota|billing/i.test(String(erro.code ?? '')) ||
+      /quota|credit|billing/i.test(e.message)
+      ? new ErroLeitura(
+          'A conta da OpenAI está sem crédito. O administrador precisa adicionar crédito em platform.openai.com (Billing).',
+          e.message,
+        )
       : new ErroLeitura(
           'A leitura automática está no limite de uso; tente de novo em instantes.',
           e.message,

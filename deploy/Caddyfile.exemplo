@@ -5,6 +5,8 @@
 
 sigo.smartinterno.com {
 	encode zstd gzip
+	# Só HTTPS daqui em diante: o navegador não tenta mais o http (cookie de sessão é Secure).
+	header Strict-Transport-Security "max-age=31536000"
 
 	handle /api/* {
 		# Sem strip de caminho: o Nest registra as rotas sob o prefixo /api.

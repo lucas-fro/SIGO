@@ -51,6 +51,8 @@ export function invalidarTotais(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['lancamentos'] })
   void qc.invalidateQueries({ queryKey: ['indicadores'] })
   void qc.invalidateQueries({ queryKey: ['painel'] })
+  // Cancelar ou editar um fixo lançado muda o que ainda falta lançar no mês.
+  void qc.invalidateQueries({ queryKey: ['fixos-lancados'] })
 }
 
 /**

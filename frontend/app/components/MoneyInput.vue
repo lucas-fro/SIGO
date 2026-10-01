@@ -17,6 +17,34 @@ const formato = new Intl.NumberFormat('pt-BR', {
 })
 const texto = computed(() => (model.value === null ? '' : formato.format(model.value / 100)))
 
+/**
+ * Colar é diferente de digitar: quem cola "1.500" ou "R$ 1.234,56" copiou um
+ * valor pronto, não uma sequência de dígitos da caixa registradora (que daria
+ * R$ 15,00). Lê no formato brasileiro (ponto de milhar, vírgula decimal) e, sem
+ * vírgula, aceita ponto decimal com 1 ou 2 casas ("1234.5"). O que não for um
+ * valor reconhecível segue o caminho normal da digitação.
+ */
+function centavosColados(texto: string): number | null {
+  const limpo = texto.replace(/R\$|\s/g, '')
+  let reais: number
+  if (/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+(,\d{1,2})?$/.test(limpo)) {
+    reais = Number(limpo.replace(/\./g, '').replace(',', '.'))
+  } else if (/^\d+\.\d{1,2}$/.test(limpo)) {
+    reais = Number(limpo)
+  } else return null
+  const centavos = Math.round(reais * 100)
+  return Number.isFinite(centavos) && centavos > 0 && centavos <= 99_999_999_999 ? centavos : null
+}
+
+function aoColar(evento: ClipboardEvent) {
+  const centavos = centavosColados(evento.clipboardData?.getData('text') ?? '')
+  if (centavos === null) return
+  evento.preventDefault()
+  model.value = centavos
+  const alvo = evento.target as HTMLInputElement
+  alvo.value = formato.format(centavos / 100)
+}
+
 function aoDigitar(evento: Event) {
   const alvo = evento.target as HTMLInputElement
   const digitos = alvo.value
@@ -49,6 +77,7 @@ function aoDigitar(evento: Event) {
       :aria-invalid="invalid || undefined"
       placeholder="0,00"
       @input="aoDigitar"
+      @paste="aoColar"
     />
   </div>
 </template>

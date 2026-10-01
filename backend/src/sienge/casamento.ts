@@ -158,9 +158,7 @@ export function nomesParecidos(
     if (!dele.length) return false
     const [menor, maior] = meu.length <= dele.length ? [meu, dele] : [dele, meu]
     if (!menor.some((p) => p.length >= 4)) return false
-    return menor.length >= 2
-      ? contem(maior, menor)
-      : maior.length <= 2 && maior[0] === menor[0]
+    return menor.length >= 2 ? contem(maior, menor) : maior.length <= 2 && maior[0] === menor[0]
   })
 }
 

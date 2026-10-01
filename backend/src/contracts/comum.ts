@@ -26,7 +26,13 @@ export const mesQuery = z
  * gasto, vencimento e pagamento são dias, e um `Date` com fuso troca de dia no
  * caminho entre o navegador, o servidor em UTC e o banco.
  */
-export const data = (error = 'Data inválida') => z.iso.date({ error })
+export const data = (error = 'Data inválida') =>
+  z.iso
+    .date({ error })
+    // Ano de dois dígitos digitado no campo de data vira "0026": tiraria o gasto de todos os totais.
+    .refine((v) => v >= '2000-01-01' && v <= '2099-12-31', {
+      error: 'Use uma data entre 2000 e 2099',
+    })
 
 /**
  * Dinheiro sempre em centavos inteiros. Em ponto flutuante 0,1 + 0,2 não dá

@@ -293,16 +293,34 @@ export class CadastrosService {
       }
     }
 
-    const [novo] = await this.db
-      .insert(fornecedores)
-      .values({ nome: dados.nome, documento: dados.documento, criadoPor: usuario.id })
-      .returning({
-        id: fornecedores.id,
-        nome: fornecedores.nome,
-        documento: fornecedores.documento,
-        ativo: fornecedores.ativo,
+    try {
+      const [novo] = await this.db
+        .insert(fornecedores)
+        .values({ nome: dados.nome, documento: dados.documento, criadoPor: usuario.id })
+        .returning({
+          id: fornecedores.id,
+          nome: fornecedores.nome,
+          documento: fornecedores.documento,
+          ativo: fornecedores.ativo,
+        })
+      return novo!
+    } catch (err) {
+      // Duas pessoas cadastrando o mesmo CNPJ ao mesmo tempo: a segunda recebe o que já existe.
+      if (!ehViolacaoUnica(err) || !dados.documento) throw err
+      const [existente] = await this.db
+        .select({
+          id: fornecedores.id,
+          nome: fornecedores.nome,
+          documento: fornecedores.documento,
+          ativo: fornecedores.ativo,
+        })
+        .from(fornecedores)
+        .where(eq(fornecedores.documento, dados.documento))
+      throw new ConflictException({
+        message: `Já existe um fornecedor com este documento: ${existente?.nome ?? ''}`,
+        fornecedor: existente,
       })
-    return novo!
+    }
   }
 
   async editarFornecedor(id: number, mudancas: EditarFornecedor): Promise<Fornecedor> {

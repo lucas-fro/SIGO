@@ -37,6 +37,9 @@ async function entrar() {
       res.data?.message ??
       (status === 401 ? 'E-mail ou senha incorretos' : 'Não foi possível entrar. Tente de novo.')
     senha.value = ''
+    // O campo fica desabilitado enquanto envia: o foco só pega depois de liberado.
+    enviando.value = false
+    await nextTick()
     campoSenha.value?.focus()
   } finally {
     enviando.value = false

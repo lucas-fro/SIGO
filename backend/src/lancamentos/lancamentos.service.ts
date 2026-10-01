@@ -8,9 +8,9 @@ import {
   gte,
   ilike,
   inArray,
-  isNotNull,
   isNull,
   lte,
+  not,
   or,
   sql,
   type SQL,
@@ -226,6 +226,9 @@ function paraResumo(r: LinhaResumo): LancamentoResumo {
 /** Escapa curinga do ILIKE: quem busca "100%" quer o texto, não "100 seguido de qualquer coisa". */
 const termoBusca = (texto: string): string => `%${texto.replace(/[\\%_]/g, '\\$&')}%`
 
+const LANCAMENTO_MUDOU =
+  'Este lançamento mudou desde que a edição foi aberta (por exemplo, um pagamento conferido no Sienge). Recarregue a página para editar a versão atual.'
+
 /** Estado gravado de um lançamento, para comparar com a edição. */
 interface Atual {
   id: number
@@ -304,7 +307,8 @@ export class LancamentosService {
         .select({
           total: sql<number>`count(*)::int`,
           soma: sql<string>`coalesce(sum(${lancamentos.valorCentavos}), 0)::bigint`,
-          emAberto: sql<string>`coalesce(sum(${resumo.emAbertoCentavos}), 0)::bigint`,
+          // Cancelado não tem nada a pagar, mesmo com parcela sem data de pagamento.
+          emAberto: sql<string>`coalesce(sum(${resumo.emAbertoCentavos}) filter (where ${lancamentos.situacao} = 'ativo'), 0)::bigint`,
         })
         .from(lancamentos)
         .leftJoin(fornecedores, eq(fornecedores.id, lancamentos.fornecedorId))
@@ -498,9 +502,7 @@ export class LancamentosService {
       entrada.versao !== undefined &&
       entrada.versao !== (atual.atualizadoEm?.toISOString() ?? null)
     ) {
-      throw new ConflictException(
-        'Este lançamento mudou desde que a edição foi aberta (por exemplo, um pagamento conferido no Sienge). Recarregue a página para editar a versão atual.',
-      )
+      throw new ConflictException(LANCAMENTO_MUDOU)
     }
 
     await this.validarEntrada(entrada, atual)
@@ -508,6 +510,22 @@ export class LancamentosService {
     if (!alteracoes.length && !entrada.anexoIds.length) return this.detalhar(usuario, id)
 
     await this.db.transaction(async (tx) => {
+      // A conferência acima leu o lançamento fora da transação: trava a linha e confere de
+      // novo. Se um pagamento (da pessoa ou da conferência com o Sienge) entrou nesse meio
+      // tempo, as parcelas abaixo o apagariam.
+      const [travado] = await tx
+        .select({ atualizadoEm: lancamentos.atualizadoEm, situacao: lancamentos.situacao })
+        .from(lancamentos)
+        .where(eq(lancamentos.id, id))
+        .for('update')
+      if (
+        !travado ||
+        travado.situacao !== 'ativo' ||
+        (travado.atualizadoEm?.toISOString() ?? null) !==
+          (atual.atualizadoEm?.toISOString() ?? null)
+      ) {
+        throw new ConflictException(LANCAMENTO_MUDOU)
+      }
       const ligados = await this.comprovantes.vincular(tx, usuario, id, entrada.anexoIds)
       if (ligados.length) {
         await tx.insert(eventos).values(
@@ -664,7 +682,23 @@ export class LancamentosService {
     const pausaSienge = !pagoEm && (await this.marcadaPeloSienge(lancamentoId, linha.numero))
 
     await this.db.transaction(async (tx) => {
-      await tx.update(parcelas).set({ pagoEm }).where(eq(parcelas.id, parcelaId))
+      // Só se a parcela continua como foi lida: outra pessoa (ou a conferência) pode ter
+      // registrado ou desfeito o pagamento nesse meio tempo.
+      const [mudou] = await tx
+        .update(parcelas)
+        .set({ pagoEm })
+        .where(
+          and(
+            eq(parcelas.id, parcelaId),
+            linha.pagoEm === null ? isNull(parcelas.pagoEm) : eq(parcelas.pagoEm, linha.pagoEm),
+          ),
+        )
+        .returning({ id: parcelas.id })
+      if (!mudou) {
+        throw new ConflictException(
+          'O pagamento desta parcela mudou enquanto a tela estava aberta. Confira e tente de novo.',
+        )
+      }
       await tx
         .update(lancamentos)
         .set({
@@ -677,7 +711,8 @@ export class LancamentosService {
         lancamentoId,
         tipo: pagoEm ? 'pagamento_registrado' : 'pagamento_desfeito',
         usuarioId: usuario.id,
-        dados: { parcela: linha.numero, pagoEm },
+        // A data anterior também: trocar ou desfazer não pode apagar a que existia.
+        dados: { parcela: linha.numero, pagoEm, pagoEmAnterior: linha.pagoEm },
       })
     })
 
@@ -730,14 +765,21 @@ export class LancamentosService {
       throw new NotFoundException('Cartão não encontrado')
     }
     const inicio = `${mes}-01`
+    // Pelo gasto fixo, como o "lançar" e o painel contam: o lançamento pode ter
+    // mudado de cartão (ou ficado sem) depois de criado.
     const linhas = await this.db
       .selectDistinct({ gastoFixoId: lancamentos.gastoFixoId })
       .from(lancamentos)
       .where(
         and(
-          eq(lancamentos.cartaoId, cartaoId),
+          inArray(
+            lancamentos.gastoFixoId,
+            this.db
+              .select({ id: gastosFixos.id })
+              .from(gastosFixos)
+              .where(eq(gastosFixos.cartaoId, cartaoId)),
+          ),
           eq(lancamentos.situacao, 'ativo'),
-          isNotNull(lancamentos.gastoFixoId),
           between(lancamentos.dataGasto, inicio, fimDoMes(inicio)),
         ),
       )
@@ -800,8 +842,9 @@ export class LancamentosService {
         const vencimento = temFatura
           ? vencimentoDaFatura(dataGasto, cartao.diaFechamento!, cartao.diaVencimento!)
           : dataGasto
-        // Sem fatura (pré-pago), o dinheiro sai na hora da cobrança: nasce pago.
-        const pagoEm = !temFatura && dataGasto <= hoje() ? dataGasto : null
+        // Sem fatura (pré-pago), o dinheiro sai sozinho no dia da cobrança: nasce pago
+        // naquele dia, mesmo lançado antes (senão viraria "vencido" sem ninguém pagar nada).
+        const pagoEm = temFatura ? null : dataGasto
 
         const [novo] = await tx
           .insert(lancamentos)
@@ -891,6 +934,8 @@ export class LancamentosService {
           and(
             ativos,
             between(lancamentos.dataGasto, `${janela.inicio}-01`, fimDoMes(`${janela.fim}-01`)),
+            // O mês corrente vai até hoje, como o gasto do mês: a barra e o número batem.
+            not(between(lancamentos.dataGasto, somarDias(dia, 1), fimDoMes(dia))),
           ),
         )
         .groupBy(mesDoGasto),
@@ -1061,18 +1106,24 @@ export class LancamentosService {
 
     // Cartão (opcional): quando informado, precisa de uma forma de cartão, do
     // mesmo setor e da mesma forma. Sem cartão, o gasto só não entra no
-    // orçamento de nenhum cartão.
+    // orçamento de nenhum cartão. Lançamento antigo que não mexe em cartão nem
+    // forma continua editável mesmo que o cadastro do cartão ou da forma tenha
+    // mudado depois (como no cadastro desativado).
     if (entrada.cartaoId !== null) {
+      const cartaoMudou =
+        !atual ||
+        atual.cartaoId !== entrada.cartaoId ||
+        atual.formaPagamentoId !== entrada.formaPagamentoId
       if (entrada.formaPagamentoId === null) {
         problemas.push({
           path: 'formaPagamentoId',
           message: 'Escolha a forma de pagamento do cartão',
         })
-      } else if (forma[0] && !forma[0].cartao) {
+      } else if (cartaoMudou && forma[0] && !forma[0].cartao) {
         problemas.push({ path: 'cartaoId', message: 'Esta forma de pagamento não usa cartão' })
       } else {
         conferir('cartaoId', cartao[0], 'Cartão')
-        if (cartao[0] && cartao[0].formaPagamentoId !== entrada.formaPagamentoId) {
+        if (cartaoMudou && cartao[0] && cartao[0].formaPagamentoId !== entrada.formaPagamentoId) {
           problemas.push({ path: 'cartaoId', message: 'Este cartão é de outra forma de pagamento' })
         }
       }
@@ -1080,7 +1131,10 @@ export class LancamentosService {
 
     const dia = hoje()
     entrada.parcelas.forEach((p, i) => {
-      if (p.pagoEm && p.pagoEm > dia) {
+      // O pagamento já gravado (o fixo de cartão pré-pago nasce pago na data da cobrança)
+      // passa como está; só a data nova no futuro é recusada.
+      const mesmaData = !!atual && atual.parcelas[i]?.pagoEm === p.pagoEm
+      if (p.pagoEm && p.pagoEm > dia && !mesmaData) {
         problemas.push({
           path: `parcelas.${i}.pagoEm`,
           message: 'O pagamento não pode estar no futuro',
@@ -1121,6 +1175,9 @@ export class LancamentosService {
       .from(lancamentos)
       .where(
         and(
+          // Só do mesmo setor: o aviso devolve descrição, valor e código, e de outro
+          // setor a pessoa nem pode ver o lançamento.
+          eq(lancamentos.setorId, entrada.setorId),
           entrada.fornecedorId === null
             ? isNull(lancamentos.fornecedorId)
             : eq(lancamentos.fornecedorId, entrada.fornecedorId),

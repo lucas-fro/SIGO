@@ -50,7 +50,7 @@ const VALIDADE_CACHE_MS = 60_000
 @Injectable()
 export class LeituraIaService {
   private readonly log = new Logger('LeituraIA')
-  private readonly cofre = chaveDoCofre(env.AUTH_SECRET ?? env.ADMIN_PASSWORD)
+  private readonly cofre = chaveDoCofre(env.AUTH_SECRET)
   private cache: { leitor: Promise<Leitor | null>; em: number } | null = null
 
   constructor(@Inject(DB) private readonly db: Database) {}
