@@ -30,12 +30,16 @@ const LISTAS = [
   { valor: 'campanhas', rotulo: 'Campanhas', singular: 'campanha' },
   { valor: 'fornecedores', rotulo: 'Fornecedores', singular: 'fornecedor' },
   { valor: 'leitura-ia', rotulo: 'Leitura por IA', singular: 'configuração' },
+  // Temporária, até a leitura por IA ir ao ar (contracts/importacao.ts).
+  { valor: 'importar', rotulo: 'Importar', singular: 'importação' },
 ] as const
 type Lista = (typeof LISTAS)[number]['valor']
 
-/** A configuração da leitura por IA é só do admin (a API também confere). */
+/** A configuração da leitura por IA é só do admin; importar, de quem lança (a API também confere). */
 const listasVisiveis = computed(() =>
-  LISTAS.filter((l) => l.valor !== 'leitura-ia' || isAdmin.value),
+  LISTAS.filter(
+    (l) => (l.valor !== 'leitura-ia' || isAdmin.value) && (l.valor !== 'importar' || canEdit.value),
+  ),
 )
 const lista = computed<Lista>(
   () => listasVisiveis.value.find((l) => l.valor === route.query.lista)?.valor ?? 'categorias',
@@ -79,6 +83,7 @@ const linhasTodas = computed<Linha[]>(() => {
     case 'fornecedores':
       return fornecedores.value ?? []
     case 'leitura-ia':
+    case 'importar':
       return []
   }
 })
@@ -266,6 +271,7 @@ async function alternarExclusao(linha: Linha) {
     </div>
 
     <LeituraIaCadastro v-if="lista === 'leitura-ia'" />
+    <ImportacaoCadastro v-else-if="lista === 'importar'" />
 
     <template v-else>
       <!-- novo item -->

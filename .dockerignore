@@ -12,3 +12,4 @@
 # Crítico: o Nuxt lê o .env durante a build. Se ele entrar no contexto, o
 # endereço de desenvolvimento (localhost) sobrescreve o ARG da imagem.
 **/.env
+importacoes

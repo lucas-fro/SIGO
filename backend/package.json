@@ -21,7 +21,8 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:exemplo": "tsx src/db/exemplo.ts",
     "db:studio": "drizzle-kit studio",
-    "usuarios": "tsx src/auth/cli.ts"
+    "usuarios": "tsx src/auth/cli.ts",
+    "importacao:conferir": "tsx src/importacao/conferir.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",

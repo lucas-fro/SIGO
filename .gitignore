@@ -12,3 +12,7 @@ coverage
 
 # Comprovantes enviados (no servidor, a pasta montada como volume).
 dados/
+
+# Pacotes de importação (importacao.json + comprovantes) montados no chat: documentos
+# reais, que ficam só nesta máquina.
+importacoes/

@@ -71,6 +71,13 @@ dos comentários: português do Brasil.
   (`removidoEm`) e o arquivo fica. A leitura por IA só sugere: `montarLeitura` confere
   tudo e nada é gravado no lançamento sem a pessoa salvar. Leitores: `leitor-openai.ts` e
   `leitor-claude.ts`, com instruções e esquema comuns em `instrucoes-leitura.ts`.
+- Importação em JSON (TEMPORÁRIA, até a leitura por IA ir ao ar): o pacote é montado no
+  chat com o Claude (skill `importacao-sigo`), no formato `sigo-importacao/1`
+  (`contracts/importacao.ts`), conferido por `npm run importacao:conferir` e gravado pela
+  aba Importar de Cadastros (`ImportacaoCadastro.vue`, só para quem lança) pelas rotas de
+  sempre (fornecedor, anexo, recarga, lançamento), sem rota própria. Os pacotes ficam em
+  `importacoes/` (fora do git). Para tirar: o contrato e o spec, o componente e a aba, o
+  script, a skill e esta linha.
 - Configuração da IA (`src/configuracoes/`, só admin): API, modelo e chave são cadastrados
   na tela (Cadastros → Leitura por IA), nunca no `.env`. A chave vai cifrada para a tabela
   `configuracoes` (`config/cofre.ts`), é conferida na API antes de salvar e nunca volta
